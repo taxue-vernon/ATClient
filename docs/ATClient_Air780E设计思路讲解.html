@@ -1,0 +1,2297 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ATClient 设计详解</title>
+<style>
+:root {
+  --bg: #f8f7f4; --surface: #ffffff; --surface-2: #f2f0eb; --fg: #1d1e21; --muted: #5a5f69; --faint: #8b909a;
+  --border: #e2dfd8; --code-bg: #f4f2ed; --band-main: #eef5f8; --band-isr: #f4eff8;
+  --accent: #0a6a8a; --accent-soft: #e1f0f5; --isr: #7c3fa3; --isr-soft: #efe5f6;
+  --good: #1d7a4b; --good-soft: #e5f3eb; --bad: #b3261e; --bad-soft: #fbe9e6; --warn: #8f6200; --warn-soft: #fcf2d9;
+  --hl-k: #8a3fb0; --hl-t: #0b6e70; --hl-f: #2f5fb3; --hl-s: #a3531a; --hl-n: #a3531a; --hl-c: #7b8290; --hl-p: #8a3fb0; --hl-m: #9b3b56;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "SFMono-Regular", Menlo, monospace;
+  --sans: -apple-system, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC", "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #131417; --surface: #1a1c20; --surface-2: #202328; --fg: #e6e7ea; --muted: #a3a8b2; --faint: #7c818c;
+    --border: #2d3037; --code-bg: #1d2025; --band-main: #15242b; --band-isr: #221a2a;
+    --accent: #4db3d6; --accent-soft: #15313b; --isr: #c18ee6; --isr-soft: #2b2034;
+    --good: #5cc48b; --good-soft: #152a1f; --bad: #f07b6f; --bad-soft: #36191a; --warn: #e0b34c; --warn-soft: #2f2612;
+    --hl-k: #cf9bf0; --hl-t: #5fcfc9; --hl-f: #7fb0f5; --hl-s: #e8a36f; --hl-n: #e8a36f; --hl-c: #7d8594; --hl-p: #cf9bf0; --hl-m: #ec8fa9;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #131417; --surface: #1a1c20; --surface-2: #202328; --fg: #e6e7ea; --muted: #a3a8b2; --faint: #7c818c;
+  --border: #2d3037; --code-bg: #1d2025; --band-main: #15242b; --band-isr: #221a2a;
+  --accent: #4db3d6; --accent-soft: #15313b; --isr: #c18ee6; --isr-soft: #2b2034;
+  --good: #5cc48b; --good-soft: #152a1f; --bad: #f07b6f; --bad-soft: #36191a; --warn: #e0b34c; --warn-soft: #2f2612;
+  --hl-k: #cf9bf0; --hl-t: #5fcfc9; --hl-f: #7fb0f5; --hl-s: #e8a36f; --hl-n: #e8a36f; --hl-c: #7d8594; --hl-p: #cf9bf0; --hl-m: #ec8fa9;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 16px; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15.5px; line-height: 1.75; -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { font-family: var(--mono); font-size: .88em; background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; padding: .05em .35em; white-space: nowrap; }
+pre code { white-space: pre; border: 0; background: none; padding: 0; font-size: inherit; }
+strong { font-weight: 650; }
+
+.layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 48px; max-width: 1240px; margin: 0 auto; padding: 0 24px; }
+.toc { position: sticky; top: 0; align-self: start; max-height: 100vh; overflow-y: auto; padding: 36px 0 24px; font-size: 13.5px; line-height: 1.5; }
+.toc .toc-title { font-size: 12px; letter-spacing: .08em; color: var(--faint); margin: 0 0 10px; }
+.toc ol { list-style: none; margin: 0; padding: 0; }
+.toc li a { display: flex; gap: 8px; padding: 5px 10px; border-radius: 6px; color: var(--muted); border-left: 2px solid transparent; }
+.toc li a:hover { background: var(--surface-2); text-decoration: none; color: var(--fg); }
+.toc li a.active { color: var(--accent); border-left-color: var(--accent); background: var(--accent-soft); }
+.toc .tn { font-family: var(--mono); font-size: 11.5px; color: var(--faint); min-width: 20px; padding-top: 1px; }
+.toc li a.active .tn { color: var(--accent); }
+.toc .toc-group { font-size: 11.5px; color: var(--faint); margin: 14px 10px 4px; }
+main { min-width: 0; max-width: 900px; padding: 36px 0 80px; }
+
+.hero { padding: 8px 0 28px; border-bottom: 1px solid var(--border); margin-bottom: 32px; }
+.eyebrow { font-family: var(--mono); font-size: 12.5px; color: var(--accent); letter-spacing: .04em; }
+h1 { font-size: 34px; line-height: 1.25; margin: 10px 0 14px; letter-spacing: -.01em; }
+.sub { font-size: 16.5px; color: var(--muted); margin: 0 0 16px; max-width: 760px; }
+.meta { font-size: 13px; color: var(--faint); display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 24px 0 0; }
+.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+.kpi b { display: block; font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.kpi span { font-size: 12.5px; color: var(--muted); line-height: 1.45; display: block; margin-top: 2px; }
+
+h2 { font-size: 24px; line-height: 1.35; margin: 64px 0 8px; display: flex; align-items: baseline; gap: 12px; }
+h2 .num { font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border-radius: 6px; padding: 2px 8px; flex: none; position: relative; top: -2px; }
+h3 { font-size: 17px; margin: 30px 0 8px; }
+h4 { font-size: 14px; margin: 0 0 8px; letter-spacing: .02em; }
+p { margin: 10px 0; }
+.lede { font-size: 16.5px; color: var(--muted); margin: 4px 0 18px; }
+ul, ol { padding-left: 1.4em; margin: 8px 0; }
+li { margin: 4px 0; }
+.section-kicker { font-size: 12px; letter-spacing: .1em; color: var(--faint); margin: 72px 0 -40px; font-weight: 600; }
+
+.principles { counter-reset: pr; list-style: none; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 16px 0; }
+.principles li { counter-increment: pr; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px 12px 46px; position: relative; margin: 0; font-size: 14.5px; line-height: 1.6; }
+.principles li::before { content: counter(pr); position: absolute; left: 14px; top: 12px; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: var(--surface); font-size: 12.5px; font-weight: 700; display: grid; place-items: center; }
+.principles li a { font-size: 12.5px; margin-left: 4px; }
+
+.pc { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 18px 0; }
+.pc > div { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px 10px; font-size: 14.5px; line-height: 1.65; }
+.pc .pro { border-top: 3px solid var(--good); }
+.pc .con { border-top: 3px solid var(--bad); }
+.pc .pro h4 { color: var(--good); }
+.pc .con h4 { color: var(--bad); }
+.pc ul { padding-left: 1.15em; margin: 0; }
+.pc li { margin: 0 0 7px; }
+
+.fn { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 14px 0 6px; font-size: 13px; color: var(--muted); }
+.fn .lbl { font-weight: 600; color: var(--fg); margin-right: 2px; }
+.fn code { font-size: 12px; background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+.fn code.isr { background: var(--isr-soft); color: var(--isr); }
+.fn code.ext { background: var(--surface-2); color: var(--muted); border-color: var(--border); }
+
+.code { margin: 16px 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--code-bg); }
+.codehead { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; padding: 7px 14px; border-bottom: 1px solid var(--border); background: var(--surface-2); font-size: 12px; color: var(--muted); }
+.cpath { font-family: var(--mono); color: var(--fg); }
+.clines { font-family: var(--mono); color: var(--faint); }
+.ctitle { color: var(--muted); }
+.ctag { font-size: 11.5px; font-weight: 700; padding: 0 7px; border-radius: 4px; }
+.code-bad { border-color: color-mix(in srgb, var(--bad) 45%, var(--border)); }
+.code-bad .ctag { background: var(--bad-soft); color: var(--bad); }
+.code-good .ctag { background: var(--good-soft); color: var(--good); }
+.code-plain .ctag { background: var(--surface); color: var(--muted); }
+.code pre { margin: 0; padding: 12px 16px; overflow-x: auto; font-size: 12.8px; line-height: 1.6; }
+.code .k { color: var(--hl-k); } .code .t { color: var(--hl-t); } .code .f { color: var(--hl-f); }
+.code .s { color: var(--hl-s); } .code .n { color: var(--hl-n); } .code .c { color: var(--hl-c); font-style: italic; }
+.code .p { color: var(--hl-p); } .code .m { color: var(--hl-m); }
+.code .elide { color: var(--faint); }
+
+.tbl { overflow-x: auto; margin: 14px 0; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 13.8px; line-height: 1.6; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+th { font-size: 12.5px; color: var(--muted); font-weight: 600; background: var(--surface-2); white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td code { white-space: nowrap; }
+.tbl.wrapcode td code { white-space: normal; overflow-wrap: anywhere; }
+.tbl.limits table { table-layout: fixed; min-width: 760px; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 12.5px; white-space: nowrap; }
+.ctx { font-size: 12px; font-weight: 600; border-radius: 4px; padding: 1px 7px; white-space: nowrap; }
+.ctx-main { background: var(--accent-soft); color: var(--accent); }
+.ctx-isr { background: var(--isr-soft); color: var(--isr); }
+
+.note { border-left: 3px solid var(--warn); background: var(--warn-soft); border-radius: 0 8px 8px 0; padding: 10px 14px; margin: 16px 0; font-size: 14.2px; }
+.note b { color: var(--warn); }
+.tip { border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 0 8px 8px 0; padding: 10px 14px; margin: 16px 0; font-size: 14.2px; }
+
+figure.dg { margin: 22px 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 14px 10px; color: var(--fg); }
+figure.dg svg { display: block; width: 100%; height: auto; max-width: 100%; font-family: var(--sans); }
+figcaption { font-size: 13px; color: var(--muted); margin: 10px 4px 2px; line-height: 1.6; }
+figcaption b { color: var(--fg); }
+.dg text { fill: currentColor; font-size: 12.5px; }
+.dg .ts { font-weight: 650; font-size: 13.5px; }
+.dg .tm { font-family: var(--mono); font-size: 11.5px; }
+.dg .tsm { font-size: 11.5px; }
+.dg .mut { fill: var(--muted); }
+.dg .fnt { fill: var(--faint); }
+.dg .tacc { fill: var(--accent); }
+.dg g.tsm text { font-size: 11.5px; }
+.dg g.mut text { fill: var(--muted); }
+.dg g.fnt text { fill: var(--faint); }
+.dg g.tgood text { fill: var(--good); }
+.dg .tisr { fill: var(--isr); }
+.dg .tbad { fill: var(--bad); }
+.dg .tgood { fill: var(--good); }
+.dg .box { fill: var(--surface); stroke: currentColor; stroke-width: 1.2; }
+.dg .box-acc { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.4; }
+.dg .box-isr { fill: var(--isr-soft); stroke: var(--isr); stroke-width: 1.3; }
+.dg .box-bad { fill: var(--bad-soft); stroke: var(--bad); stroke-width: 1.3; stroke-dasharray: 5 4; }
+.dg .box-good { fill: var(--good-soft); stroke: var(--good); stroke-width: 1.3; }
+.dg .box-mut { fill: var(--surface-2); stroke: var(--border); stroke-width: 1; }
+.dg .box-err { fill: var(--bad-soft); stroke: var(--bad); stroke-width: 1.3; }
+.dg .box-warn { fill: var(--warn-soft); stroke: var(--warn); stroke-width: 1.3; }
+.dg .twarn { fill: var(--warn); }
+.dg .ln-good { stroke: var(--good); stroke-width: 1.5; fill: none; }
+.dg .ln-warn { stroke: var(--warn); stroke-width: 1.4; fill: none; }
+.dg .fill-warn { fill: var(--warn); }
+.dg .band-main { fill: var(--band-main); }
+.dg .band-isr { fill: var(--band-isr); }
+.dg .ln { stroke: currentColor; stroke-width: 1.3; fill: none; }
+.dg .ln-acc { stroke: var(--accent); stroke-width: 1.5; fill: none; }
+.dg .ln-isr { stroke: var(--isr); stroke-width: 1.4; fill: none; stroke-dasharray: 5 4; }
+.dg .ln-bad { stroke: var(--bad); stroke-width: 1.3; fill: none; stroke-dasharray: 5 4; }
+.dg .ln-mut { stroke: var(--faint); stroke-width: 1.1; fill: none; }
+.dg .ln-dash { stroke: var(--faint); stroke-width: 1; fill: none; stroke-dasharray: 3 4; }
+.dg .fill-fg { fill: currentColor; }
+.dg .fill-acc { fill: var(--accent); }
+.dg .fill-isr { fill: var(--isr); }
+.dg .fill-bad { fill: var(--bad); }
+.dg .fill-mut { fill: var(--faint); }
+.dg .fill-soft { fill: var(--accent-soft); }
+.dg .fill-s2 { fill: var(--surface-2); }
+.dg .fill-good { fill: var(--good); }
+
+.footer { margin-top: 72px; padding-top: 20px; border-top: 1px solid var(--border); font-size: 12.5px; color: var(--faint); }
+
+.toc-mobile { display: none; }
+@media (max-width: 1100px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 16px; }
+  .toc { display: none; }
+  .toc-mobile { display: block; margin: 0 0 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; font-size: 14px; }
+  .toc-mobile summary { cursor: pointer; font-weight: 600; }
+  .toc-mobile ol { margin: 8px 0 4px; padding-left: 1.4em; }
+  main { padding-top: 20px; }
+}
+@media (max-width: 720px) {
+  body { font-size: 15px; }
+  h1 { font-size: 27px; }
+  h2 { font-size: 20px; margin-top: 52px; }
+  .kpis { grid-template-columns: 1fr 1fr; }
+  .principles, .pc { grid-template-columns: minmax(0, 1fr); }
+  code, td code { white-space: normal; overflow-wrap: anywhere; }
+  figure.dg { padding: 10px 6px 8px; overflow-x: auto; }
+  figure.dg svg { min-width: 560px; }
+  .code pre { font-size: 12px; }
+}
+@media print {
+  .toc, .toc-mobile { display: none; }
+  .layout { grid-template-columns: 1fr; }
+  .code, figure.dg, .pc > div { break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="toc" aria-label="目录">
+  <p class="toc-title">目录</p>
+  <ol>
+    <li><a href="#overview"><span class="tn">00</span>总览：AT 通信难在哪</a></li>
+    <li class="toc-group">设计要点</li>
+    <li><a href="#d1"><span class="tn">01</span>传输层注入</a></li>
+    <li><a href="#d2"><span class="tn">02</span>协作式非阻塞</a></li>
+    <li><a href="#d3"><span class="tn">03</span>ISR / 主循环分工</a></li>
+    <li><a href="#d4"><span class="tn">04</span>固定容量与可观测性</a></li>
+    <li><a href="#d5"><span class="tn">05</span>事务描述符</a></li>
+    <li><a href="#d6"><span class="tn">06</span>队列与优先级</a></li>
+    <li><a href="#d7"><span class="tn">07</span>状态机与 '&gt;' 提示符</a></li>
+    <li><a href="#d8"><span class="tn">08</span>行分类与多阶段确认</a></li>
+    <li><a href="#d9"><span class="tn">09</span>唯一完成出口</a></li>
+    <li><a href="#d10"><span class="tn">10</span>回绕安全的超时</a></li>
+    <li><a href="#d11"><span class="tn">11</span>URC 注册表</a></li>
+    <li><a href="#d12"><span class="tn">12</span>长度帧流式解析</a></li>
+    <li><a href="#d13"><span class="tn">13</span>所有权约定</a></li>
+    <li class="toc-group">串起来看</li>
+    <li><a href="#walk"><span class="tn">14</span>走读：一次 QoS1 发布</a></li>
+    <li><a href="#tests"><span class="tn">15</span>可测试性</a></li>
+    <li><a href="#limits"><span class="tn">16</span>边界与改进建议</a></li>
+  </ol>
+</nav>
+<main>
+<details class="toc-mobile">
+  <summary>目录</summary>
+  <ol start="0">
+    <li><a href="#overview">总览</a></li><li><a href="#d1">传输层注入</a></li><li><a href="#d2">协作式非阻塞</a></li>
+    <li><a href="#d3">ISR / 主循环分工</a></li><li><a href="#d4">固定容量与可观测性</a></li><li><a href="#d5">事务描述符</a></li>
+    <li><a href="#d6">队列与优先级</a></li><li><a href="#d7">状态机与提示符</a></li><li><a href="#d8">行分类与多阶段确认</a></li>
+    <li><a href="#d9">唯一完成出口</a></li><li><a href="#d10">回绕安全的超时</a></li><li><a href="#d11">URC 注册表</a></li>
+    <li><a href="#d12">长度帧流式解析</a></li><li><a href="#d13">所有权约定</a></li><li><a href="#walk">走读：QoS1 发布</a></li>
+    <li><a href="#tests">可测试性</a></li><li><a href="#limits">边界与改进建议</a></li>
+  </ol>
+</details>
+
+<header class="hero">
+  <div class="eyebrow">JPSmartCube · lib/ATClient</div>
+  <h1>ATClient 设计思路详解</h1>
+  <p class="sub">一个运行在 STM32F103C8（20 KB SRAM）上的通用 AT 客户端：全程异步、零动态内存、不依赖 HAL，也不认识任何具体模组的命令。本文逐条说明它为什么这样设计、换一种做法会出什么问题，以及每条设计落在哪个函数上。</p>
+  <div class="meta">
+    <span>源码：ATClient.h 225 行 · ATClient.c 698 行</span>
+    <span>使用方：Air780E（MQTT）· ML307C（HTTP，设计中）</span>
+    <span>依据：工作区源码（与提交 5308f3e 一致）</span>
+    <span>整理日期：2026-09-28</span>
+  </div>
+  <div class="kpis">
+    <div class="kpi"><b>3,128 B</b><span>ATClient 对象的静态 RAM（firmware.elf 中的 at_client，占 SRAM 15.3%）</span></div>
+    <div class="kpi"><b>≈ 2.0 KB</b><span>Flash 占用（ATClient_* 符号合计 2,056 B）</span></div>
+    <div class="kpi"><b>0</b><span>malloc、HAL_Delay、忙等循环</span></div>
+    <div class="kpi"><b>24 / 24</b><span>主机单元测试，用伪传输层替代硬件</span></div>
+  </div>
+</header>
+
+<section id="overview">
+<h2><span class="num">00</span>总览：AT 通信难在哪里</h2>
+<p class="lede">AT 看起来只是"发一行、收一行"。放到一颗 20 KB SRAM、没有 RTOS 的 MCU 上，真正的难点有四个。</p>
+<ul>
+  <li><strong>响应是异步的，而且分阶段。</strong>发出 <code>AT+MIPSTART</code> 后，<code>OK</code> 几毫秒就回来，<code>CONNECT OK</code> 可能要几秒。"收到 OK"并不代表"连上了"。</li>
+  <li><strong>URC 随时插入。</strong><code>+MSUB:</code>、<code>CLOSED</code> 可能夹在任何一条命令的响应中间，也可能在完全空闲时到达。</li>
+  <li><strong>同一个串口里混着文本和二进制。</strong>MQTT payload 里可能有 <code>\r\n</code>、<code>0x00</code>、<code>&gt;</code>，按行切分就会切坏。</li>
+  <li><strong>资源和实时性都很紧。</strong>同一个主循环还要跑 SHT30 采样、蜂鸣器节拍、烟雾传感器和调试串口，任何一处"等一下"都会拖慢所有任务。</li>
+</ul>
+<p>ATClient 的全部设计，都在回答同一个问题：<strong>在不阻塞、不 malloc 的前提下，怎样把这四件事做对。</strong>归纳起来是六条原则：</p>
+<ol class="principles">
+  <li>只依赖注入的 <code>start_tx()</code> 与 <code>get_time_ms()</code>，与 HAL、芯片解耦。<a href="#d1">§01</a></li>
+  <li>任何函数都不等待。<code>Process()</code> 只消费"已经发生"的事件。<a href="#d2">§02</a></li>
+  <li>ISR 只搬字节、置标志，解析和回调全部在主循环中执行。<a href="#d3">§03</a></li>
+  <li>内存在编译期确定，每一种"装不下"都有返回码和计数。<a href="#d4">§04</a></li>
+  <li>通用层只懂"事务的形状"，命令语义由设备层通过描述符声明。<a href="#d5">§05–08</a></li>
+  <li>大 payload 流式透传，不整帧缓存。<a href="#d12">§12</a></li>
+</ol>
+
+<figure class="dg">
+<svg viewBox="0 0 1000 400" role="img" aria-label="分层与执行上下文：主循环中 main 调用 ATClient_Process 和设备层 Process，设备层通过 Submit 提交事务并接收回调；ATClient 通过 start_tx 启动 DMA；中断中 UART 适配层只调用 PushRx 和 OnTxComplete。">
+  <defs>
+    <marker id="f1-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-fg"/></marker>
+    <marker id="f1-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-acc"/></marker>
+    <marker id="f1-isr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-isr"/></marker>
+  </defs>
+  <rect x="10" y="10" width="980" height="190" rx="10" class="band-main"/>
+  <text x="26" y="32" class="tsm tacc">主循环上下文 · 可以解析，可以执行用户回调</text>
+  <rect x="10" y="215" width="980" height="175" rx="10" class="band-isr"/>
+  <text x="26" y="237" class="tsm tisr">中断 / DMA 上下文 · 只搬运字节、只置标志</text>
+
+  <!-- main loop calls both Process functions -->
+  <path d="M100 76 V58 H610 V73" class="ln" marker-end="url(#f1-a)"/>
+  <path d="M335 58 V73" class="ln" marker-end="url(#f1-a)"/>
+  <text x="355" y="51" text-anchor="middle" class="tsm mut">每圈依次调用 ATClient_Process() 与 Air780E_Process()</text>
+
+  <rect x="30" y="76" width="140" height="84" rx="8" class="box"/>
+  <text x="100" y="111" text-anchor="middle" class="ts">main.c</text>
+  <text x="100" y="133" text-anchor="middle" class="tsm mut">while(1) 轮询所有任务</text>
+
+  <rect x="240" y="76" width="190" height="84" rx="8" class="box"/>
+  <text x="335" y="111" text-anchor="middle" class="ts">Air780E / ML307C</text>
+  <text x="335" y="133" text-anchor="middle" class="tsm mut">设备层：命令语义与状态机</text>
+
+  <rect x="500" y="76" width="220" height="84" rx="8" class="box-acc"/>
+  <text x="610" y="111" text-anchor="middle" class="ts">ATClient_Process()</text>
+  <text x="610" y="133" text-anchor="middle" class="tsm mut">行解析 · 事务状态机 · 超时</text>
+
+  <path d="M430 104 H496" class="ln" marker-end="url(#f1-a)"/>
+  <text x="463" y="97" text-anchor="middle" class="tsm">Submit()</text>
+  <path d="M500 134 H434" class="ln" marker-end="url(#f1-a)"/>
+  <text x="467" y="152" text-anchor="middle" class="tsm">回调</text>
+
+  <!-- start_tx goes down to the port -->
+  <path d="M720 100 H930 V242" class="ln-acc" marker-end="url(#f1-acc)"/>
+  <text x="790" y="93" text-anchor="middle" class="tsm tacc">start_tx()</text>
+  <text x="790" y="122" text-anchor="middle" class="tsm mut">只启动 DMA，立即返回</text>
+  <!-- tx complete comes back up from the ISR -->
+  <path d="M860 242 V134 H724" class="ln-isr" marker-end="url(#f1-isr)"/>
+  <text x="852" y="232" text-anchor="end" class="tsm tisr">OnTxComplete()</text>
+
+  <!-- ring buffer read by Process -->
+  <rect x="500" y="246" width="220" height="64" rx="8" class="box"/>
+  <text x="610" y="272" text-anchor="middle" class="ts">rx_buffer[1024]</text>
+  <text x="610" y="294" text-anchor="middle" class="tsm mut">SPSC 环形缓冲</text>
+  <path d="M610 246 V164" class="ln-acc" marker-end="url(#f1-acc)"/>
+  <text x="618" y="212" class="tsm tacc">主循环按 tail 消费</text>
+
+  <rect x="800" y="246" width="170" height="64" rx="8" class="box-isr"/>
+  <text x="885" y="272" text-anchor="middle" class="ts">UART 适配层</text>
+  <text x="885" y="294" text-anchor="middle" class="tm mut">air780e_uart_port.c</text>
+  <path d="M800 278 H724" class="ln-isr" marker-end="url(#f1-isr)"/>
+  <text x="762" y="270" text-anchor="middle" class="tsm tisr">PushRx()</text>
+
+  <path d="M885 314 V334" class="ln" marker-start="url(#f1-a)" marker-end="url(#f1-a)"/>
+  <rect x="800" y="338" width="170" height="44" rx="8" class="box-mut"/>
+  <text x="885" y="356" text-anchor="middle" class="tsm">USART2 · DMA1 Ch6/Ch7</text>
+  <text x="885" y="374" text-anchor="middle" class="tsm mut">⇄ Air780E 模组</text>
+
+  <!-- what the ISR is allowed to do -->
+  <text x="40" y="276" class="tsm" font-weight="650">ISR 只允许调用三个入口：</text>
+  <text x="40" y="299" class="tsm mut">① ATClient_PushRx()：拷贝新字节</text>
+  <text x="40" y="320" class="tsm mut">② ATClient_OnTxComplete()：推进发送阶段</text>
+  <text x="40" y="341" class="tsm mut">③ ATClient_OnTransportError()：只置标志</text>
+  <text x="40" y="366" class="tsm tbad">✗ 不解析　✗ 不回调　✗ 不打印　✗ 不等待</text>
+</svg>
+<figcaption><b>图 1　分层与执行上下文。</b>上半部分在主循环中运行，可以解析数据、执行回调；下半部分在中断中运行，只通过三个"搬运 / 置标志"入口与 ATClient 交互。ATClient 不包含任何 HAL 头文件，唯一向下的调用是注入的 <code>start_tx()</code>。</figcaption>
+</figure>
+
+<h3>公开 API 一览</h3>
+<div class="tbl"><table>
+<thead><tr><th>函数</th><th>调用方</th><th>上下文</th><th>作用</th></tr></thead>
+<tbody>
+<tr><td><code>ATClient_Init</code></td><td>main 初始化</td><td><span class="ctx ctx-main">主循环</span></td><td>清零对象、复制 transport，校验两个必需回调非空</td></tr>
+<tr><td><code>ATClient_RegisterUrc</code></td><td>设备层 Init</td><td><span class="ctx ctx-main">主循环</span></td><td>按前缀注册 URC 处理器，同一前缀重复注册即原地更新</td></tr>
+<tr><td><code>ATClient_RegisterLengthFrame</code></td><td>设备层 Init</td><td><span class="ctx ctx-main">主循环</span></td><td>注册"前缀 + 帧头探针 + 流式 payload 回调"</td></tr>
+<tr><td><code>ATClient_Submit</code></td><td>设备层</td><td><span class="ctx ctx-main">主循环</span></td><td>校验并复制事务描述符入队，立即返回</td></tr>
+<tr><td><code>ATClient_Process</code></td><td>main 的 while(1)</td><td><span class="ctx ctx-main">主循环</span></td><td>发起事务、解析 RX、判断超时、触发全部回调</td></tr>
+<tr><td><code>ATClient_PushRx</code></td><td>UART 适配层</td><td><span class="ctx ctx-isr">ISR</span></td><td>把新收到的字节拷进环形缓冲；满则丢弃新字节并计数</td></tr>
+<tr><td><code>ATClient_OnTxComplete</code></td><td>UART 适配层</td><td><span class="ctx ctx-isr">ISR</span></td><td>DMA 发送完成，推进 TX_ACTIVE / PAYLOAD_TX_ACTIVE</td></tr>
+<tr><td><code>ATClient_OnTransportError</code></td><td>UART 适配层</td><td><span class="ctx ctx-isr">ISR</span></td><td>只置 <code>transport_error_pending</code>，由 Process 统一结束事务</td></tr>
+<tr><td><code>ATClient_IsIdle</code> / <code>GetStats</code> / <code>NowMs</code> / <code>RxPending</code></td><td>任意</td><td><span class="ctx ctx-main">主循环</span></td><td>只读查询：是否空闲、诊断计数、注入时钟、待解析字节数</td></tr>
+</tbody></table></div>
+</section>
+
+<p class="section-kicker">设计要点</p>
+
+<section id="d1">
+<h2><span class="num">01</span>传输层注入：ATClient 只认识两个函数指针</h2>
+<p class="lede">ATClient 不包含任何 HAL 头文件，也不保存 <code>UART_HandleTypeDef</code>。它对外部世界的全部要求，就是 <code>ATClient_Transport</code> 里的两个回调和一个上下文指针。</p>
+<p><code>start_tx(context, data, length)</code> 只负责<strong>启动</strong>一次异步发送并立即返回成功或失败；<code>get_time_ms(context)</code> 提供单调递增的毫秒时基。反方向的事件——收到字节、发送完成、传输错误——由适配层主动调用 <code>ATClient_PushRx()</code>、<code>ATClient_OnTxComplete()</code>、<code>ATClient_OnTransportError()</code> 通知进来。依赖方向因此是单向的：<code>port → ATClient</code>，ATClient 从不反向包含适配层的任何东西。</p>
+
+<div class="code"><div class="codehead"><span class="cpath">lib/ATClient/src/ATClient.h</span><span class="clines">L45–55</span><span class="ctitle">平台相关的一切都收敛在这三个字段里</span></div><pre><code><span class="k">typedef</span> <span class="t">bool</span> (*<span class="t">ATClient_StartTx</span>)(<span class="t">void</span> *context,
+                                 <span class="k">const</span> <span class="t">uint8_t</span> *data,
+                                 <span class="t">size_t</span> length);
+<span class="k">typedef</span> <span class="t">uint32_t</span> (*<span class="t">ATClient_GetTimeMs</span>)(<span class="t">void</span> *context);
+
+<span class="k">typedef</span> <span class="k">struct</span>
+{
+    <span class="t">ATClient_StartTx</span> start_tx;
+    <span class="t">ATClient_GetTimeMs</span> get_time_ms;
+    <span class="t">void</span> *context;
+} <span class="t">ATClient_Transport</span>;</code></pre></div>
+
+<div class="pc">
+  <div class="pro"><h4>这样设计的好处</h4><ul>
+    <li><b>可移植：</b>换 MCU、换串口，甚至换成 USB CDC 或 RTOS 队列，只需重写适配层里的两个函数，ATClient.c 一行不动。</li>
+    <li><b>可复用：</b>同一份 ATClient 已承载 Air780E（MQTT），ML307C（HTTP）的设计也直接复用它，不再另建 AT 队列或行解析器。</li>
+    <li><b>可测试：</b>主机测试用 <code>fake_start_tx</code> 把"发送"记进数组，用一个变量充当时钟，24 个用例在 PC 上用 gcc 就能跑。</li>
+    <li><b>可多实例：</b><code>void *context</code> 让同一套代码同时服务两个模组、两个串口，不依赖全局变量。</li>
+  </ul></div>
+  <div class="con"><h4>如果不这样设计</h4><ul>
+    <li>库里直接调用 <code>HAL_UART_Transmit_DMA(&amp;huart2, …)</code>：库与 STM32 HAL、与 USART2 死绑定，换一个串口就得改库；主机上无法编译，测试只能上板。</li>
+    <li>库里直接调用 <code>HAL_GetTick()</code>：测试无法把时钟"快进"到 49.7 天的回绕点，这类 bug 只能等现场复现。</li>
+    <li>没有 context 指针：只能用全局变量找到"当前串口"，无法再实例化第二个客户端。</li>
+  </ul></div>
+</div>
+<div class="fn"><span class="lbl">对应函数</span><code>ATClient_Init</code><code>ATClient_NowMs</code><code class="ext">Air780E_UartPort_GetTransport</code><code class="ext">Air780E_UartPort_StartTx</code><code class="ext">fake_start_tx（测试）</code></div>
+
+<p>STM32 这一侧的实现也很薄：<code>start_tx</code> 只调用一次 <code>HAL_UART_Transmit_DMA()</code> 就返回，<code>get_time_ms</code> 就是 <code>HAL_GetTick()</code>。<code>ATClient_Init()</code> 会拒绝缺少任一回调的 transport，防止运行时才空指针崩溃。</p>
+<div class="code"><div class="codehead"><span class="cpath">src/air780e_uart_port.c</span><span class="clines">L46–55 · L160–188</span><span class="ctitle">STM32 适配层：把 HAL DMA 包装成 start_tx / get_time_ms</span></div><pre><code><span class="t">ATClient_Transport</span> <span class="f">Air780E_UartPort_GetTransport</span>(<span class="t">void</span>)
+{
+    <span class="t">ATClient_Transport</span> transport = {
+        .start_tx = Air780E_UartPort_StartTx,
+        .get_time_ms = Air780E_UartPort_GetTimeMs,
+        .context = &amp;port_state,
+    };
+
+    <span class="k">return</span> transport;
+}
+<span class="elide">    ⋯</span>
+<span class="k">static</span> <span class="t">bool</span> <span class="f">Air780E_UartPort_StartTx</span>(<span class="t">void</span> *context,
+                                     <span class="k">const</span> <span class="t">uint8_t</span> *data,
+                                     <span class="t">size_t</span> length)
+{
+    <span class="t">Air780E_UartPortState</span> *state = (<span class="t">Air780E_UartPortState</span> *)context;
+
+    <span class="k">if</span> (state != &amp;port_state || data == <span class="m">NULL</span> || length == <span class="n">0U</span> ||
+        length &gt; <span class="m">UINT16_MAX</span> || state-&gt;tx_busy)
+    {
+        <span class="k">return</span> <span class="m">false</span>;
+    }
+
+    <span class="c">/* Non-blocking: arm DMA exactly once and return. The HAL TX-complete
+     * callback releases the port and advances ATClient later. */</span>
+    <span class="k">if</span> (<span class="f">HAL_UART_Transmit_DMA</span>(&amp;huart2, (<span class="t">uint8_t</span> *)data, (<span class="t">uint16_t</span>)length) !=
+        <span class="m">HAL_OK</span>)
+    {
+        <span class="k">return</span> <span class="m">false</span>;
+    }
+    <span class="f">Air780E_UartPort_RawPush</span>(&amp;state-&gt;raw_tx, data, length);
+    state-&gt;tx_busy = <span class="m">true</span>;
+    <span class="k">return</span> <span class="m">true</span>;
+}
+
+<span class="k">static</span> <span class="t">uint32_t</span> <span class="f">Air780E_UartPort_GetTimeMs</span>(<span class="t">void</span> *context)
+{
+    (<span class="t">void</span>)context;
+    <span class="k">return</span> <span class="f">HAL_GetTick</span>();
+}</code></pre></div>
+<div class="code"><div class="codehead"><span class="cpath">test/host_atclient/test_atclient.c</span><span class="clines">L55–77</span><span class="ctitle">主机测试的伪传输层：发送就是记进数组，时间就是一个可以手动拨动的变量</span></div><pre><code><span class="k">static</span> <span class="t">bool</span> <span class="f">fake_start_tx</span>(<span class="t">void</span> *context, <span class="k">const</span> <span class="t">uint8_t</span> *data, <span class="t">size_t</span> length)
+{
+    <span class="t">FakeTransport</span> *transport = (<span class="t">FakeTransport</span> *)context;
+
+    <span class="k">if</span> (!transport-&gt;accept_tx || transport-&gt;tx_calls &gt;= <span class="n">16U</span> ||
+        length &gt; <span class="k">sizeof</span>(transport-&gt;tx_data[<span class="n">0</span>]))
+    {
+        <span class="k">return</span> <span class="m">false</span>;
+    }
+
+    <span class="f">memcpy</span>(transport-&gt;tx_data[transport-&gt;tx_calls], data, length);
+    transport-&gt;tx_lengths[transport-&gt;tx_calls] = length;
+    ++transport-&gt;tx_calls;
+    <span class="k">return</span> <span class="m">true</span>;
+}
+
+<span class="k">static</span> <span class="t">uint32_t</span> <span class="f">fake_get_time_ms</span>(<span class="t">void</span> *context)
+{
+    <span class="t">FakeTransport</span> *transport = (<span class="t">FakeTransport</span> *)context;
+
+    ++transport-&gt;get_time_calls;
+    <span class="k">return</span> transport-&gt;now_ms;
+}</code></pre></div>
+</section>
+
+<section id="d2">
+<h2><span class="num">02</span>协作式非阻塞：Process() 只处理"已经发生"的事</h2>
+<p class="lede">库里没有 <code>HAL_Delay</code>，没有 <code>while</code> 等标志位，也没有阻塞式 UART 调用。每次 <code>ATClient_Process()</code> 只做有限的工作，然后把 CPU 还给主循环。</p>
+<p>做法是把"等待"拆成"记下现在处于哪一步，下次再来看"：</p>
+<ul>
+  <li><b>发送：</b><code>StartNext()</code> 调用 <code>start_tx()</code> 后立即把状态记为 <code>TX_ACTIVE</code> 并返回，发送完成由中断里的 <code>OnTxComplete()</code> 推进。</li>
+  <li><b>等响应：</b>状态停在 <code>WAIT_RESPONSE</code>，每次 Process 只解析环形缓冲里<em>已经到达</em>的字节，读到 head 就停。</li>
+  <li><b>超时：</b>只比较 <code>now − started_ms</code>，从不睡眠。测试 <code>test_timeout_does_not_poll_or_block</code> 断言每次 Process 只读一次时钟，证明内部没有轮询时钟的循环。</li>
+</ul>
+
+<figure class="dg">
+<svg viewBox="0 0 880 262" role="img" aria-label="阻塞式与协作式对比时间线：阻塞式每条命令占住主循环约 300 毫秒，蜂鸣器被推迟；协作式中 ATClient 与其他任务交替运行，OK 到达后下一圈即完成。">
+  <defs>
+    <pattern id="f2-mix" x="160" y="150" width="14" height="36" patternUnits="userSpaceOnUse">
+      <rect x="0" y="0" width="14" height="36" class="fill-s2"/>
+      <rect x="0" y="0" width="4" height="36" class="fill-acc"/>
+      <rect x="5" y="0" width="4" height="36" class="fill-mut"/>
+    </pattern>
+  </defs>
+  <text x="20" y="72" class="ts">阻塞式</text>
+  <text x="20" y="91" class="tsm mut">while 等 OK</text>
+  <rect x="160" y="55" width="300" height="36" rx="4" class="box-bad"/>
+  <text x="310" y="78" text-anchor="middle" class="tsm">发 AT+CSQ，原地等 OK</text>
+  <rect x="461" y="55" width="16" height="36" class="fill-mut"/>
+  <rect x="478" y="55" width="9" height="36" class="fill-mut"/>
+  <rect x="488" y="55" width="300" height="36" rx="4" class="box-bad"/>
+  <text x="638" y="78" text-anchor="middle" class="tsm">下一条命令，再等 300 ms</text>
+  <rect x="789" y="55" width="16" height="36" class="fill-mut"/>
+  <rect x="806" y="55" width="9" height="36" class="fill-mut"/>
+  <line x1="260" y1="44" x2="260" y2="55" class="ln-bad"/>
+  <text x="264" y="40" class="tsm tbad">蜂鸣器本应在 100 ms 翻转 → 被推迟到约 300 ms</text>
+
+  <text x="20" y="167" class="ts">协作式</text>
+  <text x="20" y="186" class="tsm mut">每圈只处理已到达事件</text>
+  <rect x="160" y="150" width="700" height="36" rx="4" fill="url(#f2-mix)"/>
+  <line x1="260" y1="139" x2="260" y2="150" class="ln-mut"/>
+  <text x="260" y="134" text-anchor="middle" class="tsm tgood">蜂鸣器准时</text>
+  <line x1="460" y1="139" x2="460" y2="150" class="ln-acc"/>
+  <text x="460" y="134" text-anchor="middle" class="tsm tacc">OK 到达 → 下一圈 Process 即完成回调</text>
+
+  <line x1="160" y1="206" x2="860" y2="206" class="ln-mut"/>
+  <g class="tsm fnt" text-anchor="middle">
+    <line x1="160" y1="206" x2="160" y2="211" class="ln-mut"/><text x="160" y="224">0</text>
+    <line x1="260" y1="206" x2="260" y2="211" class="ln-mut"/><text x="260" y="224">100</text>
+    <line x1="360" y1="206" x2="360" y2="211" class="ln-mut"/><text x="360" y="224">200</text>
+    <line x1="460" y1="206" x2="460" y2="211" class="ln-mut"/><text x="460" y="224">300</text>
+    <line x1="560" y1="206" x2="560" y2="211" class="ln-mut"/><text x="560" y="224">400</text>
+    <line x1="660" y1="206" x2="660" y2="211" class="ln-mut"/><text x="660" y="224">500</text>
+    <line x1="760" y1="206" x2="760" y2="211" class="ln-mut"/><text x="760" y="224">600</text>
+    <line x1="860" y1="206" x2="860" y2="211" class="ln-mut"/><text x="860" y="224">700 ms</text>
+  </g>
+  <rect x="160" y="240" width="12" height="12" class="fill-acc"/>
+  <text x="178" y="250" class="tsm mut">ATClient / 设备层 Process</text>
+  <rect x="360" y="240" width="12" height="12" class="fill-mut"/>
+  <text x="378" y="250" class="tsm mut">SHT30 · 蜂鸣器 · 烟雾传感器</text>
+  <rect x="570" y="240" width="22" height="12" class="box-bad"/>
+  <text x="598" y="250" class="tsm mut">原地阻塞等待</text>
+</svg>
+<figcaption><b>图 2　同样等 300 ms 的 OK，两种写法对主循环的影响。</b>阻塞式把整段等待时间都占住，其他任务被迫排队；协作式把每一圈压缩到微秒级，ATClient 与其他任务交替运行（示意，条纹宽度不代表真实耗时）。</figcaption>
+</figure>
+
+<p><code>ATClient_Process()</code> 内部的顺序同样经过考虑，每一步的位置都有原因：</p>
+<div class="code"><div class="codehead"><span class="cpath">lib/ATClient/src/ATClient.c</span><span class="clines">L250–296</span><span class="ctitle">一圈的完整流程</span></div><pre><code><span class="t">void</span> <span class="f">ATClient_Process</span>(<span class="t">ATClient</span> *client)
+{
+    <span class="t">uint32_t</span> now_ms;
+
+    <span class="k">if</span> (client == <span class="m">NULL</span>)
+    {
+        <span class="k">return</span>;
+    }
+
+    <span class="k">if</span> (!client-&gt;has_active_request)
+    {
+        <span class="f">ATClient_StartNext</span>(client);
+    }
+
+    <span class="k">if</span> (client-&gt;transport_error_pending)
+    {
+        client-&gt;transport_error_pending = <span class="m">false</span>;
+        ++client-&gt;stats.transport_error_count;
+        <span class="k">if</span> (client-&gt;has_active_request)
+        {
+            <span class="f">ATClient_Complete</span>(client, <span class="m">ATCLIENT_RESULT_TRANSPORT_ERROR</span>);
+        }
+    }
+
+    <span class="f">ATClient_ProcessRx</span>(client);
+
+    <span class="k">if</span> (client-&gt;has_active_request &amp;&amp;
+        client-&gt;state == <span class="m">ATCLIENT_STATE_WAIT_PROMPT</span> &amp;&amp; client-&gt;prompt_seen)
+    {
+        <span class="f">ATClient_StartPayload</span>(client);
+    }
+
+    <span class="k">if</span> (client-&gt;has_active_request)
+    {
+        now_ms = client-&gt;transport.<span class="f">get_time_ms</span>(client-&gt;transport.context);
+        <span class="k">if</span> ((<span class="t">uint32_t</span>)(now_ms - client-&gt;started_ms) &gt;=
+            client-&gt;active_request.timeout_ms)
+        {
+            <span class="f">ATClient_Complete</span>(client, <span class="m">ATCLIENT_RESULT_TIMEOUT</span>);
+        }
+    }
+
+    <span class="k">if</span> (!client-&gt;has_active_request)
+    {
+        <span class="f">ATClient_StartNext</span>(client);
+    }
+}</code></pre></div>
+<ol>
+  <li><b>先 <code>StartNext()</code>：</b>空闲时尽早把队首事务发出去，后续解析到的回显和提示符才能归属到正确的事务。</li>
+  <li><b>再处理挂起的传输错误：</b>放在 RX 解析之前，保证 <code>TRANSPORT_ERROR</code> 落在"出错的那一条"事务上，而不是被下一条命令背锅。</li>
+  <li><b><code>ProcessRx()</code> 消费全部已到达字节：</b>这是有界循环，只读到 <code>rx_head</code> 为止，不等待新字节。</li>
+  <li><b>满足条件才发 payload：</b>RX 解析可能刚刚看到 <code>'&gt;'</code>，所以放在它之后判断。</li>
+  <li><b>最后判超时：</b>先消费已到达的数据再判超时，"最后一毫秒到达的 OK"不会被误报为 <code>TIMEOUT</code>。</li>
+  <li><b>收尾再 <code>StartNext()</code>：</b>本圈有事务结束时，下一条命令在同一圈内立即发出，不白等一圈。</li>
+</ol>
+
+<div class="pc">
+  <div class="pro"><h4>这样设计的好处</h4><ul>
+    <li><b>主循环延迟有上界：</b>Process 的耗时只与"本圈新到了多少字节"有关，与模组多久才回复无关。等待 <code>AT+MIPSTART</code> 最长 30 s 的期间，SHT30 采样、蜂鸣器节拍、烟雾传感器照常运行。</li>
+    <li><b>不需要 RTOS：</b>没有线程栈、互斥锁和优先级反转，20 KB SRAM 省下的空间更可观。</li>
+    <li><b>"等待"变成显式状态：</b>可以查询（<code>ATClient_IsIdle()</code>），也可以测试——测试里直接断言某次 Process 之后 <code>completion_calls == 0</code>。</li>
+  </ul></div>
+  <div class="con"><h4>如果不这样设计</h4><ul>
+    <li><b>阻塞发送 + while 等 OK：</b>一条命令就把主循环卡住几百毫秒到 30 秒，期间蜂鸣器、传感器全部停摆。设计文档专门指出：工程早期 main.c 里的 <code>HAL_Delay(1700)</code> 会让 AT 状态机约 2 秒才运行一次，因此集成时被移除。</li>
+    <li><b>用延时实现超时：</b>模组掉电时每条命令都要等满超时，看门狗很可能在这段时间里复位整机。</li>
+    <li><b>在中断回调里"顺手推进下一步"：</b>逻辑散落在 ISR 和主循环两处，难以推理，还违背了"ISR 不执行用户代码"的约束。</li>
+  </ul></div>
+</div>
+<div class="fn"><span class="lbl">对应函数</span><code>ATClient_Process</code><code>ATClient_StartNext</code><code>ATClient_IsIdle</code><code class="ext">main.c: while(1)</code></div>
+
+<div class="code code-bad"><div class="codehead"><span class="ctag">反例</span><span class="ctitle">阻塞式 AT 发送（示意，非本工程代码）</span></div><pre><code><span class="t">bool</span> <span class="f">AT_SendAndWait</span>(<span class="k">const</span> <span class="t">char</span> *cmd, <span class="t">uint32_t</span> timeout_ms)
+{
+    <span class="f">HAL_UART_Transmit</span>(&amp;huart2, (<span class="t">uint8_t</span> *)cmd, <span class="f">strlen</span>(cmd), <span class="n">100</span>); <span class="c">/* 阻塞发送 */</span>
+    <span class="t">uint32_t</span> start = <span class="f">HAL_GetTick</span>();
+    <span class="k">while</span> (<span class="f">strstr</span>(rx_line, <span class="s">"OK"</span>) == <span class="m">NULL</span>)                         <span class="c">/* 原地忙等 */</span>
+    {
+        <span class="k">if</span> (<span class="f">HAL_GetTick</span>() - start &gt; timeout_ms)
+        {
+            <span class="k">return</span> <span class="m">false</span>;              <span class="c">/* 模组没接上时，每条命令都要卡满超时 */</span>
+        }
+    }
+    <span class="k">return</span> <span class="m">true</span>;
+}</code></pre></div>
+<p>本工程的主循环因此只是"每圈把所有任务的 Process 都调一遍"：</p>
+<div class="code"><div class="codehead"><span class="cpath">src/main.c</span><span class="clines">L197–199 · L210–218</span><span class="ctitle">主循环：ATClient 与其他任务平等地轮转</span></div><pre><code>    <span class="k">while</span> (<span class="n">1</span>)
+    {
+        <span class="t">uint32_t</span> now_ms = <span class="f">HAL_GetTick</span>();
+<span class="elide">    ⋯</span>
+        <span class="k">if</span> (air780e_ready)
+        {
+            <span class="c">/* Cooperative, non-blocking progress: these functions consume
+             * current events only and never wait for a future response. */</span>
+            <span class="f">ATClient_Process</span>(&amp;at_client);
+            <span class="f">Air780E_Process</span>(&amp;air780e);
+            <span class="f">Air780E_UartPort_ProcessRaw</span>();
+        }
+        <span class="f">Buzzer_Process</span>(now_ms);</code></pre></div>
+</section>
+
+<section id="d3">
+<h2><span class="num">03</span>ISR 与主循环分工：单生产者 / 单消费者环形缓冲</h2>
+<p class="lede">中断里只做一件事：把字节拷进 <code>rx_buffer</code>。所有解析都在主循环里完成，两者之间用一个无锁的 SPSC 环形缓冲连接。</p>
+<p><code>rx_head</code> 和 <code>rx_tail</code> 是两个只增不减的 <code>uint32_t</code> 计数器：ISR 只写 head，主循环只写 tail，任何一方都不会对"对方的变量"做读-改-写。待处理字节数等于 <code>head − tail</code>，无符号减法天然处理计数器回绕；数组下标等于 <code>计数 % 1024</code>。缓冲满时，<code>PushRx()</code> 丢弃<em>新来的</em>字节、累加统计并返回 <code>RX_OVERFLOW</code>，已缓存但未解析的旧数据保持不动。</p>
+
+<figure class="dg">
+<svg viewBox="0 0 880 318" role="img" aria-label="环形缓冲示意：rx_head 只由 ISR 推进，rx_tail 只由主循环推进，两者之间是待解析数据；下方对比共享 count 变量时 ISR 打断主循环的读改写导致丢失一次更新。">
+  <defs>
+    <marker id="f3-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-acc"/></marker>
+    <marker id="f3-isr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-isr"/></marker>
+    <marker id="f3-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-fg"/></marker>
+  </defs>
+  <text x="40" y="22" class="tsm fnt">rx_buffer 示意：16 格代表 1024 字节</text>
+  <text x="546" y="44" text-anchor="middle" class="tsm tisr">rx_head：只由 ISR（PushRx）推进</text>
+  <line x1="546" y1="50" x2="546" y2="74" class="ln-isr" marker-end="url(#f3-isr)"/>
+  <rect x="40" y="78" width="736" height="40" class="box"/>
+  <rect x="224" y="78" width="322" height="40" class="box-acc"/>
+  <g class="ln-mut">
+    <line x1="86" y1="78" x2="86" y2="118"/><line x1="132" y1="78" x2="132" y2="118"/><line x1="178" y1="78" x2="178" y2="118"/>
+    <line x1="270" y1="78" x2="270" y2="118"/><line x1="316" y1="78" x2="316" y2="118"/><line x1="362" y1="78" x2="362" y2="118"/>
+    <line x1="408" y1="78" x2="408" y2="118"/><line x1="454" y1="78" x2="454" y2="118"/><line x1="500" y1="78" x2="500" y2="118"/>
+    <line x1="592" y1="78" x2="592" y2="118"/><line x1="638" y1="78" x2="638" y2="118"/><line x1="684" y1="78" x2="684" y2="118"/>
+    <line x1="730" y1="78" x2="730" y2="118"/>
+  </g>
+  <text x="385" y="103" text-anchor="middle" class="tsm tacc">已到达、待解析</text>
+  <text x="63" y="70" text-anchor="middle" class="tsm fnt">[0]</text>
+  <text x="753" y="70" text-anchor="middle" class="tsm fnt">[1023]</text>
+  <text x="792" y="95" class="tsm mut">计数 % 1024</text>
+  <text x="792" y="113" class="tsm mut">满后回到 [0]</text>
+  <line x1="224" y1="146" x2="224" y2="122" class="ln-acc" marker-end="url(#f3-acc)"/>
+  <text x="224" y="162" text-anchor="middle" class="tsm tacc">rx_tail：只由主循环（ProcessRx）推进</text>
+
+  <rect x="40" y="180" width="250" height="30" rx="15" class="box-mut"/>
+  <text x="165" y="200" text-anchor="middle" class="tsm">待处理 = head − tail（无符号）</text>
+  <rect x="305" y="180" width="230" height="30" rx="15" class="box-mut"/>
+  <text x="420" y="200" text-anchor="middle" class="tsm">下标 = 计数 % 1024</text>
+  <rect x="550" y="180" width="290" height="30" rx="15" class="box-bad"/>
+  <text x="695" y="200" text-anchor="middle" class="tsm">满（差值 = 1024）→ 丢新字节并计数</text>
+
+  <text x="40" y="244" class="tsm tbad" font-weight="650">对比：如果 ISR 与主循环共享一个 count 变量</text>
+  <rect x="40" y="256" width="230" height="52" rx="8" class="box"/>
+  <text x="155" y="277" text-anchor="middle" class="tsm">主循环执行 count--</text>
+  <text x="155" y="297" text-anchor="middle" class="tsm mut">① 把 count = 5 读进寄存器</text>
+  <path d="M270 282 H296" class="ln" marker-end="url(#f3-a)"/>
+  <rect x="300" y="256" width="230" height="52" rx="8" class="box-isr"/>
+  <text x="415" y="277" text-anchor="middle" class="tsm">UART 中断在此打断</text>
+  <text x="415" y="297" text-anchor="middle" class="tsm mut">② count++，写回 6</text>
+  <path d="M530 282 H556" class="ln" marker-end="url(#f3-a)"/>
+  <rect x="560" y="256" width="190" height="52" rx="8" class="box"/>
+  <text x="655" y="277" text-anchor="middle" class="tsm">主循环继续</text>
+  <text x="655" y="297" text-anchor="middle" class="tsm mut">③ 5 − 1 = 4，写回</text>
+  <text x="768" y="277" class="tsm tbad">结果 4，应为 5</text>
+  <text x="768" y="297" class="tsm tbad">丢失一次更新</text>
+</svg>
+<figcaption><b>图 3　两个计数器各有唯一写者，所以不需要关中断。</b>上半部分是 ATClient 的做法；下半部分是常见的"共享 count"写法：在 Cortex-M3 上 <code>count--</code> 编译成 LDR / SUB / STR 三条指令，中断恰好落在中间时就会丢失一次更新。</figcaption>
+</figure>
+
+<div class="code"><div class="codehead"><span class="cpath">lib/ATClient/src/ATClient.h</span><span class="clines">L184–188</span><span class="ctitle">注释写明了约束：谁写 head，谁写 tail</span></div><pre><code>    <span class="t">uint8_t</span> rx_buffer[<span class="m">ATCLIENT_RX_CAPACITY</span>];
+    <span class="c">/* Single-producer/single-consumer monotonic counters: ISR writes head,
+     * main-loop parser writes tail. No shared read-modify-write count. */</span>
+    <span class="k">volatile</span> <span class="t">uint32_t</span> rx_head;
+    <span class="k">volatile</span> <span class="t">uint32_t</span> rx_tail;</code></pre></div>
+<div class="code"><div class="codehead"><span class="cpath">lib/ATClient/src/ATClient.c</span><span class="clines">L192–224 · L400–413</span><span class="ctitle">ISR 侧 PushRx：有界拷贝，满则丢新字节 ｜ 主循环侧 ProcessRx：只推进 tail</span></div><pre><code><span class="t">ATClient_Result</span> <span class="f">ATClient_PushRx</span>(<span class="t">ATClient</span> *client,
+                                <span class="k">const</span> <span class="t">uint8_t</span> *data,
+                                <span class="t">size_t</span> length)
+{
+    <span class="t">size_t</span> copied = <span class="n">0U</span>;
+    <span class="t">uint32_t</span> head;
+    <span class="t">uint32_t</span> tail;
+
+    <span class="k">if</span> (client == <span class="m">NULL</span> || (data == <span class="m">NULL</span> &amp;&amp; length != <span class="n">0U</span>))
+    {
+        <span class="k">return</span> <span class="m">ATCLIENT_RESULT_INVALID_ARGUMENT</span>;
+    }
+
+    head = client-&gt;rx_head;
+    tail = client-&gt;rx_tail;
+    <span class="k">while</span> (copied &lt; length &amp;&amp;
+           (<span class="t">uint32_t</span>)(head - tail) &lt; <span class="m">ATCLIENT_RX_CAPACITY</span>)
+    {
+        client-&gt;rx_buffer[head % <span class="m">ATCLIENT_RX_CAPACITY</span>] = data[copied];
+        ++head;
+        ++copied;
+    }
+    client-&gt;rx_head = head;
+
+    <span class="k">if</span> (copied != length)
+    {
+        ++client-&gt;stats.rx_overflow_count;
+        client-&gt;stats.rx_dropped_bytes += (<span class="t">uint32_t</span>)(length - copied);
+        <span class="k">return</span> <span class="m">ATCLIENT_RESULT_RX_OVERFLOW</span>;
+    }
+
+    <span class="k">return</span> <span class="m">ATCLIENT_RESULT_OK</span>;
+}
+<span class="elide">    ⋯</span>
+<span class="k">static</span> <span class="t">void</span> <span class="f">ATClient_ProcessRx</span>(<span class="t">ATClient</span> *client)
+{
+    <span class="k">while</span> (client-&gt;rx_tail != client-&gt;rx_head)
+    {
+        <span class="k">if</span> (client-&gt;parser_state == <span class="m">ATCLIENT_PARSER_FRAME_PAYLOAD</span>)
+        {
+            <span class="f">ATClient_ProcessFramePayload</span>(client);
+            <span class="k">continue</span>;
+        }
+
+        <span class="t">uint32_t</span> tail = client-&gt;rx_tail;
+        <span class="t">uint8_t</span> byte = client-&gt;rx_buffer[tail % <span class="m">ATCLIENT_RX_CAPACITY</span>];
+
+        client-&gt;rx_tail = tail + <span class="n">1U</span>;</code></pre></div>
+
+<p>UART 适配层用 <code>HAL_UARTEx_ReceiveToIdle_DMA()</code> 做循环 DMA 接收。每次 IDLE、半满或全满事件，回调根据 DMA 当前写到的位置算出新增区间——可能跨过 256 字节 DMA 缓冲的末尾而分成两段——再调用 <code>PushRx()</code>：</p>
+<div class="code"><div class="codehead"><span class="cpath">src/air780e_uart_port.c</span><span class="clines">L109–136</span><span class="ctitle">中断回调里只做区间计算和拷贝</span></div><pre><code><span class="t">void</span> <span class="f">Air780E_UartPort_RxEvent</span>(<span class="t">UART_HandleTypeDef</span> *huart, <span class="t">uint16_t</span> position)
+{
+    <span class="t">uint16_t</span> previous;
+
+    <span class="k">if</span> (huart != &amp;huart2 || port_state.client == <span class="m">NULL</span> ||
+        position &gt; <span class="m">AIR780E_UART_RX_DMA_CAPACITY</span>)
+    {
+        <span class="k">return</span>;
+    }
+
+    previous = port_state.rx_cursor;
+    <span class="k">if</span> (position == <span class="m">AIR780E_UART_RX_DMA_CAPACITY</span>)
+    {
+        <span class="f">Air780E_UartPort_PushSpan</span>(previous, <span class="m">AIR780E_UART_RX_DMA_CAPACITY</span>);
+        port_state.rx_cursor = <span class="n">0U</span>;
+    }
+    <span class="k">else</span> <span class="k">if</span> (position &gt;= previous)
+    {
+        <span class="f">Air780E_UartPort_PushSpan</span>(previous, position);
+        port_state.rx_cursor = position;
+    }
+    <span class="k">else</span>
+    {
+        <span class="f">Air780E_UartPort_PushSpan</span>(previous, <span class="m">AIR780E_UART_RX_DMA_CAPACITY</span>);
+        <span class="f">Air780E_UartPort_PushSpan</span>(<span class="n">0U</span>, position);
+        port_state.rx_cursor = position;
+    }
+}</code></pre></div>
+
+<div class="pc">
+  <div class="pro"><h4>这样设计的好处</h4><ul>
+    <li><b>无需临界区：</b>没有共享的 count，就不存在 ISR 与主循环同时读-改-写的竞争，也不用关中断。</li>
+    <li><b>ISR 时间可预期：</b>一次 <code>PushRx()</code> 只是有界拷贝（不超过一个 DMA 块），不会因为某行特别长或某个回调特别慢而拖长中断。</li>
+    <li><b>回调永远不在中断里执行：</b>回调里可以放心打日志、提交新事务、访问非 volatile 状态。</li>
+    <li><b>溢出时丢新保旧：</b>已缓存的半行不会被悄悄改写，<code>rx_overflow_count</code> 和 <code>rx_dropped_bytes</code> 能直接说明丢了多少字节。</li>
+  </ul></div>
+  <div class="con"><h4>如果不这样设计</h4><ul>
+    <li><b>共享 count：</b>ISR 里 <code>count++</code>、主循环里 <code>count--</code>，被中断打断就会丢一次更新（图 3 下半部分），表现为偶发的"多了或少了一个字节"，极难复现。</li>
+    <li><b>在中断里解析 AT：</b>中断耗时随数据长度变化，还会在中断上下文调用上层回调，回调里任何一次 printf 都可能让下一段 DMA 数据溢出。</li>
+    <li><b>满了就覆盖旧数据：</b>解析器看到的是拼接错位的行，比一个明确的溢出错误难查得多。</li>
+  </ul></div>
+</div>
+<div class="fn"><span class="lbl">对应函数</span><code class="isr">ATClient_PushRx（ISR）</code><code>ATClient_ProcessRx（static）</code><code>ATClient_RxPending</code><code class="ext">Air780E_UartPort_RxEvent</code></div>
+<div class="note"><b>隐含前提：</b>计数器每 2<sup>32</sup> 回绕一次，只有当容量整除 2<sup>32</sup>（即为 2 的幂）时，回绕前后的下标才连续。当前 1024 满足条件，但代码里没有编译期检查，见 <a href="#limits">§16</a>。</div>
+</section>
+
+<section id="d4">
+<h2><span class="num">04</span>固定容量、零动态内存、错误可观测</h2>
+<p class="lede">所有缓冲区都是 <code>ATClient</code> 结构体里的定长数组，容量由宏配置。链接完成的那一刻，RAM 占用就已经确定。</p>
+
+<div class="code"><div class="codehead"><span class="cpath">lib/ATClient/src/ATClient.h</span><span class="clines">L12–20 · L88–96</span><span class="ctitle">容量全部是宏；每一种&quot;装不下&quot;都有独立计数</span></div><pre><code><span class="p">#define</span> <span class="m">ATCLIENT_RX_CAPACITY</span>       <span class="n">1024U</span>
+<span class="p">#define</span> <span class="m">ATCLIENT_LINE_CAPACITY</span>     <span class="n">384U</span>
+<span class="p">#define</span> <span class="m">ATCLIENT_COMMAND_CAPACITY</span>  <span class="n">1024U</span>
+<span class="p">#define</span> <span class="m">ATCLIENT_QUEUE_CAPACITY</span>    <span class="n">4U</span>
+<span class="p">#define</span> <span class="m">ATCLIENT_URC_CAPACITY</span>      <span class="n">8U</span>
+<span class="p">#define</span> <span class="m">ATCLIENT_SUCCESS_TOKEN_CAPACITY</span>  <span class="n">3U</span>
+<span class="p">#define</span> <span class="m">ATCLIENT_FAILURE_TOKEN_CAPACITY</span>  <span class="n">3U</span>
+<span class="p">#define</span> <span class="m">ATCLIENT_LENGTH_FRAME_CAPACITY</span>  <span class="n">4U</span>
+<span class="p">#define</span> <span class="m">ATCLIENT_FRAME_PAYLOAD_MAX</span>      <span class="n">4100U</span>
+<span class="elide">    ⋯</span>
+<span class="k">typedef</span> <span class="k">struct</span>
+{
+    <span class="t">uint32_t</span> rx_overflow_count;
+    <span class="t">uint32_t</span> rx_dropped_bytes;
+    <span class="t">uint32_t</span> line_too_long_count;
+    <span class="t">uint32_t</span> queue_full_count;
+    <span class="t">uint32_t</span> transport_error_count;
+    <span class="t">uint32_t</span> protocol_error_count;
+} <span class="t">ATClient_Stats</span>;</code></pre></div>
+
+<div class="tbl"><table>
+<thead><tr><th>宏</th><th>值</th><th>为什么是这个数</th></tr></thead>
+<tbody>
+<tr><td><code>ATCLIENT_RX_CAPACITY</code></td><td class="num">1024</td><td>115200 bps 下约 89 ms 的数据量：主循环单圈卡顿不超过这个时间就不会丢字节；同时是 2 的幂，保证计数器回绕时下标连续。</td></tr>
+<tr><td><code>ATCLIENT_LINE_CAPACITY</code></td><td class="num">384</td><td>容纳 256 字节的 MQTT topic、<code>+MSUB: </code> 前缀和长度字段；同时也是长度帧头的上限。</td></tr>
+<tr><td><code>ATCLIENT_COMMAND_CAPACITY</code></td><td class="num">1024 + 2</td><td>容纳不带遗嘱的 <code>AT+MCONFIG</code>；多出的 2 字节留给库自动追加的 <code>\r\n</code>。</td></tr>
+<tr><td><code>ATCLIENT_QUEUE_CAPACITY</code></td><td class="num">4</td><td>Air780E 同一时刻最多占 2 条（一条常规命令 + 一条 <code>MQTTMSGGET</code>），留出余量。</td></tr>
+<tr><td><code>ATCLIENT_URC_CAPACITY</code></td><td class="num">8</td><td>Air780E 用了 3 个：<code>+MSUB:</code>、<code>CLOSED</code>、<code>+MQTTSTATU:</code>。</td></tr>
+<tr><td><code>ATCLIENT_LENGTH_FRAME_CAPACITY</code></td><td class="num">4</td><td>Air780E 用了 1 个（<code>+MSUB:</code>），ML307C 计划再用 1 个（<code>+MHTTPREAD:</code>）。</td></tr>
+<tr><td><code>ATCLIENT_FRAME_PAYLOAD_MAX</code></td><td class="num">4100</td><td>Air780E <code>MQTTMSGGET</code> 单条消息上限；声明长度超过它即视为协议错误。</td></tr>
+<tr><td><code>SUCCESS / FAILURE_TOKEN_CAPACITY</code></td><td class="num">3</td><td>最长的确认链是 QoS 2 发布：<code>OK → PUBREC → PUBCOMP</code>。</td></tr>
+</tbody></table></div>
+
+<figure class="dg">
+<svg viewBox="0 0 880 336" role="img" aria-label="ATClient 对象 3128 字节的构成：环形接收缓冲 1024、命令缓冲 1026、行缓冲 384、队列 288、URC 注册表 128、长度帧注册 112、活动事务 72、其他约 94；放进 20KB SRAM 中占 15.3%，若为 4 个 MQTT 缓存槽各留 4100 字节整帧缓冲，总计将达 95%。">
+  <text x="40" y="24" class="ts">ATClient 对象（3,128 B）的构成</text>
+  <g class="tsm">
+    <text x="40" y="52">rx_buffer　环形接收缓冲</text>
+    <rect x="270" y="40" width="439" height="16" rx="2" class="fill-acc"/><text x="717" y="52" class="mut">1,024 B</text>
+    <text x="40" y="78">command_buffer　当前命令</text>
+    <rect x="270" y="66" width="440" height="16" rx="2" class="fill-acc"/><text x="718" y="78" class="mut">1,026 B</text>
+    <text x="40" y="104">line_buffer　行 / 帧头</text>
+    <rect x="270" y="92" width="165" height="16" rx="2" class="fill-acc"/><text x="443" y="104" class="mut">384 B</text>
+    <text x="40" y="130">queue[4]　待发事务描述符</text>
+    <rect x="270" y="118" width="123" height="16" rx="2" class="fill-mut"/><text x="401" y="130" class="mut">288 B（4 × 72）</text>
+    <text x="40" y="156">urcs[8]　URC 注册表</text>
+    <rect x="270" y="144" width="55" height="16" rx="2" class="fill-mut"/><text x="333" y="156" class="mut">128 B</text>
+    <text x="40" y="182">length_frames[4]　长度帧注册</text>
+    <rect x="270" y="170" width="48" height="16" rx="2" class="fill-mut"/><text x="326" y="182" class="mut">112 B</text>
+    <text x="40" y="208">active_request　活动事务</text>
+    <rect x="270" y="196" width="31" height="16" rx="2" class="fill-mut"/><text x="309" y="208" class="mut">72 B</text>
+    <text x="40" y="234">其他：transport、状态、统计</text>
+    <rect x="270" y="222" width="40" height="16" rx="2" class="fill-mut"/><text x="318" y="234" class="mut">≈ 94 B</text>
+  </g>
+  <text x="40" y="274" class="ts">放进 20 KB SRAM 里看</text>
+  <rect x="40" y="284" width="800" height="22" rx="3" class="box-mut"/>
+  <rect x="40" y="284" width="122" height="22" rx="3" class="fill-acc"/>
+  <rect x="163" y="284" width="641" height="22" rx="3" class="box-bad"/>
+  <text x="483" y="299" text-anchor="middle" class="tsm tbad">假设：为 4 个 MQTT 缓存槽各留 4100 B 整帧缓冲，+16,400 B</text>
+  <text x="40" y="326" class="tsm tacc">实际：ATClient 3,128 B（15.3%）</text>
+  <text x="840" y="326" text-anchor="end" class="tsm tbad">合计将达 19,528 B（95%），其余任务几乎无 RAM 可用</text>
+</svg>
+<figcaption><b>图 4　真正的大块只有三个缓冲区，且都与"单条消息多大"无关。</b>数值来自目标固件 <code>firmware.elf</code> 中 <code>at_client</code> 的符号大小（0xC38），分项按 32 位目标的结构体布局计算。下方红色虚线是"整帧缓存"方案需要的额外空间（见 <a href="#d12">§12</a>）。</figcaption>
+</figure>
+
+<div class="pc">
+  <div class="pro"><h4>这样设计的好处</h4><ul>
+    <li><b>不碎片化，不会运行几天后突然分配失败：</b>最坏情况在编译期就可见。</li>
+    <li><b>每一种"装不下"都能区分：</b><code>RX_OVERFLOW</code>、<code>LINE_TOO_LONG</code>、<code>QUEUE_FULL</code>、<code>PROTOCOL_ERROR</code>、<code>TRANSPORT_ERROR</code> 各有返回码和计数，读一次 <code>ATClient_GetStats()</code> 就知道是哪一环出了问题。</li>
+    <li><b>容量可调：</b>换到 RAM 更大的芯片，只改宏，逻辑不变。</li>
+  </ul></div>
+  <div class="con"><h4>如果不这样设计</h4><ul>
+    <li><b>malloc / free：</b>20 KB SRAM 上的堆极易碎片化，失败发生在运行时，还与消息大小、到达顺序有关，几乎无法复现。</li>
+    <li><b>按"最大消息"整帧缓存：</b>4 个缓存槽 × 4100 B 就是 16.4 KB，加上 ATClient 本身已超过 SRAM 的 95%（图 4）。</li>
+    <li><b>静默截断或覆盖：</b>长行被截成一段"看起来合法"的短行，解析器可能把半个 topic 当成完整 topic 处理。</li>
+  </ul></div>
+</div>
+<div class="fn"><span class="lbl">对应函数</span><code>ATClient_GetStats</code><code>ATClient_PushRx</code><code>ATClient_ProcessRx</code><code>ATClient_Submit</code><code>ATClient_CheckLengthFrame</code></div>
+</section>
+
+<section id="d5">
+<h2><span class="num">05</span>事务描述符：命令语义由设备层声明</h2>
+<p class="lede">ATClient.c 里找不到 <code>MIPSTART</code>、<code>CONNECT OK</code> 这类字符串。一条命令长什么样、怎样算成功、怎样算失败、要不要发 payload，全部由设备层填进 <code>ATClient_Request</code>。</p>
+
+<div class="code"><div class="codehead"><span class="cpath">lib/ATClient/src/ATClient.h</span><span class="clines">L70–86</span><span class="ctitle">一条事务的完整&quot;形状&quot;</span></div><pre><code><span class="k">typedef</span> <span class="k">struct</span>
+{
+    <span class="t">ATClient_BuildCommand</span> build_command;
+    <span class="t">void</span> *command_context;
+    <span class="t">uint8_t</span> prompt_byte;
+    <span class="k">const</span> <span class="t">uint8_t</span> *payload;
+    <span class="t">size_t</span> payload_length;
+    <span class="k">const</span> <span class="t">char</span> *success_tokens[<span class="m">ATCLIENT_SUCCESS_TOKEN_CAPACITY</span>];
+    <span class="t">size_t</span> success_token_count;
+    <span class="k">const</span> <span class="t">char</span> *failure_tokens[<span class="m">ATCLIENT_FAILURE_TOKEN_CAPACITY</span>];
+    <span class="t">size_t</span> failure_token_count;
+    <span class="t">uint32_t</span> timeout_ms;
+    <span class="t">ATClient_Priority</span> priority;
+    <span class="t">ATClient_LineCallback</span> on_line;
+    <span class="t">ATClient_CompleteCallback</span> on_complete;
+    <span class="t">void</span> *callback_context;
+} <span class="t">ATClient_Request</span>;</code></pre></div>
+
+<div class="tbl"><table>
+<thead><tr><th>字段</th><th>含义与约束</th></tr></thead>
+<tbody>
+<tr><td><code>build_command</code> + <code>command_context</code></td><td>发送前一刻才被调用，把命令文本写进唯一的 <code>command_buffer</code>；返回 false 或长度越界时，该事务以 <code>INVALID_ARGUMENT</code> 结束，不会发出半条命令。</td></tr>
+<tr><td><code>prompt_byte</code> / <code>payload</code> / <code>payload_length</code></td><td>需要等 <code>'&gt;'</code> 再发定长数据时填写。三者必须"同时有"或"同时无"，<code>Submit()</code> 会校验。</td></tr>
+<tr><td><code>success_tokens[3]</code> + count</td><td>有序成功序列，例如 <code>OK → CONNECT OK</code>；count 为 0 时默认"收到 OK 即成功"。</td></tr>
+<tr><td><code>failure_tokens[3]</code> + count</td><td>额外的失败行，例如 <code>CONNECT FAIL</code>、<code>CLOSED</code>。<code>ERROR</code> / <code>+CME ERROR:</code> / <code>+CMS ERROR:</code> 无需声明。</td></tr>
+<tr><td><code>timeout_ms</code></td><td>从开始发送算起的整条事务超时，必须大于 0。</td></tr>
+<tr><td><code>priority</code></td><td><code>NORMAL</code> 或 <code>URGENT</code>，见 <a href="#d6">§06</a>。</td></tr>
+<tr><td><code>on_line</code> / <code>on_complete</code> / <code>callback_context</code></td><td>中间行回调（如 <code>+CSQ: 20,0</code>）和最终结果回调。</td></tr>
+</tbody></table></div>
+
+<p><b>为什么用 <code>build_command</code> 回调，而不是直接传字符串？</b>队列里只保存描述符（32 位目标上每条 72 B），命令文本要等 <code>StartNext()</code> 出队的那一刻，才构造进唯一的 1026 B <code>command_buffer</code>，随后由库自动追加 <code>\r\n</code>：</p>
+<div class="code"><div class="codehead"><span class="cpath">lib/ATClient/src/ATClient.c</span><span class="clines">L326–379</span><span class="ctitle">出队、构造、追加 \r\n、启动发送，全部在一次调用内完成</span></div><pre><code><span class="k">static</span> <span class="t">void</span> <span class="f">ATClient_StartNext</span>(<span class="t">ATClient</span> *client)
+{
+    <span class="t">size_t</span> built_length = <span class="n">0U</span>;
+
+    <span class="k">if</span> (client-&gt;has_active_request || client-&gt;queue_count == <span class="n">0U</span>)
+    {
+        <span class="k">return</span>;
+    }
+
+    client-&gt;active_request = client-&gt;queue[<span class="n">0</span>];
+    <span class="k">if</span> (client-&gt;queue_count &gt; <span class="n">1U</span>)
+    {
+        <span class="f">memmove</span>(&amp;client-&gt;queue[<span class="n">0</span>],
+                &amp;client-&gt;queue[<span class="n">1</span>],
+                (client-&gt;queue_count - <span class="n">1U</span>) * <span class="k">sizeof</span>(client-&gt;queue[<span class="n">0</span>]));
+    }
+    --client-&gt;queue_count;
+    client-&gt;has_active_request = <span class="m">true</span>;
+    client-&gt;state = <span class="m">ATCLIENT_STATE_IDLE</span>;
+    client-&gt;line_length = <span class="n">0U</span>;
+    client-&gt;discarding_line = <span class="m">false</span>;
+    client-&gt;prompt_seen = <span class="m">false</span>;
+    client-&gt;skip_prompt_space = <span class="m">false</span>;
+    client-&gt;success_token_index = <span class="n">0U</span>;
+
+    <span class="k">if</span> (!client-&gt;active_request.<span class="f">build_command</span>(
+            client-&gt;active_request.command_context,
+            (<span class="t">char</span> *)client-&gt;command_buffer,
+            <span class="m">ATCLIENT_COMMAND_CAPACITY</span>,
+            &amp;built_length) ||
+        built_length == <span class="n">0U</span> || built_length &gt; <span class="m">ATCLIENT_COMMAND_CAPACITY</span>)
+    {
+        <span class="f">ATClient_Complete</span>(client, <span class="m">ATCLIENT_RESULT_INVALID_ARGUMENT</span>);
+        <span class="k">return</span>;
+    }
+
+    client-&gt;command_buffer[built_length] = <span class="s">'\r'</span>;
+    client-&gt;command_buffer[built_length + <span class="n">1U</span>] = <span class="s">'\n'</span>;
+    client-&gt;command_length = built_length;
+    client-&gt;started_ms = client-&gt;transport.<span class="f">get_time_ms</span>(client-&gt;transport.context);
+
+    <span class="c">/* Non-blocking: start the transport and return. Completion is reported
+     * later through ATClient_OnTxComplete() and ATClient_Process(). */</span>
+    <span class="k">if</span> (!client-&gt;transport.<span class="f">start_tx</span>(client-&gt;transport.context,
+                                    client-&gt;command_buffer,
+                                    built_length + <span class="n">2U</span>))
+    {
+        ++client-&gt;stats.transport_error_count;
+        <span class="f">ATClient_Complete</span>(client, <span class="m">ATCLIENT_RESULT_TRANSPORT_ERROR</span>);
+        <span class="k">return</span>;
+    }
+
+    client-&gt;state = <span class="m">ATCLIENT_STATE_TX_ACTIVE</span>;
+}</code></pre></div>
+<p>设备层要做的只是填表。以 Air780E 为例，普通命令和 MQTT 命令共用同一份描述符，差别只在 <code>Air780E_PrepareMqttRequest()</code> 额外填写的 token 和 payload：</p>
+<div class="code"><div class="codehead"><span class="cpath">lib/Air780E/src/Air780E.c</span><span class="clines">L345–370</span><span class="ctitle">Air780E_Process() 节选：填写描述符并提交</span></div><pre><code>    <span class="f">memset</span>(&amp;modem-&gt;request, <span class="n">0</span>, <span class="k">sizeof</span>(modem-&gt;request));
+    modem-&gt;request.build_command = <span class="t">Air780E_BuildCommand</span>;
+    modem-&gt;request.command_context = modem;
+    modem-&gt;request.timeout_ms = <span class="m">AIR780E_COMMAND_TIMEOUT_MS</span>;
+    modem-&gt;request.priority = <span class="m">ATCLIENT_PRIORITY_NORMAL</span>;
+    modem-&gt;request.on_line = <span class="t">Air780E_HandleLine</span>;
+    modem-&gt;request.on_complete = <span class="t">Air780E_CommandComplete</span>;
+    modem-&gt;request.callback_context = modem;
+    modem-&gt;stage_value_valid = <span class="m">false</span>;
+    <span class="k">if</span> (!modem-&gt;started)
+    {
+        <span class="f">Air780E_PrepareMqttRequest</span>(modem);
+    }
+
+    submit_result = <span class="f">ATClient_Submit</span>(modem-&gt;at, &amp;modem-&gt;request);
+    <span class="c">/* Non-blocking: submission only queues the transaction. UART completion
+     * and protocol results arrive later through ATClient_Process(). */</span>
+    <span class="k">if</span> (submit_result == <span class="m">ATCLIENT_RESULT_OK</span>)
+    {
+        modem-&gt;command_pending = <span class="m">false</span>;
+        modem-&gt;command_active = <span class="m">true</span>;
+    }
+    <span class="k">else</span> <span class="k">if</span> (submit_result != <span class="m">ATCLIENT_RESULT_QUEUE_FULL</span>)
+    {
+        <span class="f">Air780E_FinishStartup</span>(modem, <span class="f">Air780E_MapAtResult</span>(submit_result));
+    }</code></pre></div>
+
+<div class="pc">
+  <div class="pro"><h4>这样设计的好处</h4><ul>
+    <li><b>通用层与模组解耦：</b>给 ML307C 加 HTTP 命令时，ATClient.c 一行不改。</li>
+    <li><b>省 RAM：</b>4 条排队命令只占 4 × 72 B；如果每条都预先格式化成字符串，需要 4 × 1 KB。</li>
+    <li><b>命令内容总是最新的：</b>构造发生在真正发送时，例如重连时重新拼接的 <code>AT+MCONFIG</code> 使用的就是最新配置。</li>
+    <li><b>描述符按值复制：</b><code>Submit()</code> 返回后，调用者可以立即复用自己的 request 结构体。</li>
+  </ul></div>
+  <div class="con"><h4>如果不这样设计</h4><ul>
+    <li><b>通用层硬编码模组命令：</b>每适配一款模组都要改核心库，改一处就可能破坏另一款模组的行为。</li>
+    <li><b><code>Submit()</code> 时传入已格式化的字符串：</b>要么复制它（队列成本变成每条 1 KB），要么只存指针——调用者栈上的缓冲区在函数返回后就失效，最终发出去的是乱码。</li>
+    <li><b>描述符只存指针、不复制：</b>调用者不能复用同一个 request 结构体，连续提交会互相覆盖。</li>
+  </ul></div>
+</div>
+<div class="fn"><span class="lbl">对应函数</span><code>ATClient_Submit</code><code>ATClient_StartNext（static）</code><code class="ext">Air780E_BuildCommand</code><code class="ext">Air780E_PrepareMqttRequest</code></div>
+</section>
+
+<section id="d6">
+<h2><span class="num">06</span>单活动事务 + 4 深队列 + 两级优先级</h2>
+<p class="lede">AT 协议本质上是串行的：同一时刻只能有一条命令"在说话"。ATClient 用 <code>active_request</code> 表示正在执行的那一条，其余的在 4 深的固定队列里排队。</p>
+<p>插入规则都在 <code>ATClient_Submit()</code> 里：<code>NORMAL</code> 追加到队尾；<code>URGENT</code> 插到"最后一个 URGENT 之后、第一个 NORMAL 之前"，后面的元素用 <code>memmove</code> 右移。出队时 <code>StartNext()</code> 总是取 <code>queue[0]</code>。<strong>活动事务永远不会被抢占</strong>，URGENT 的含义只是"排在下一个"。</p>
+
+<figure class="dg">
+<svg viewBox="0 0 880 240" role="img" aria-label="优先级队列插入示意：提交 URGENT 事务后，它被插在已有 URGENT 之后、NORMAL 之前，NORMAL 事务右移一格，正在执行的活动事务不受影响。">
+  <defs>
+    <marker id="f5-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-mut"/></marker>
+  </defs>
+  <text x="40" y="26" class="tsm mut">提交前：一条事务正在执行，队列里有 1 个 URGENT、2 个 NORMAL</text>
+  <rect x="40" y="40" width="200" height="56" rx="8" class="box-acc"/>
+  <text x="140" y="62" text-anchor="middle" class="tsm tacc">active_request</text>
+  <text x="140" y="83" text-anchor="middle" class="tsm">AT+MPUBEX（发送中）</text>
+  <line x1="260" y1="36" x2="260" y2="100" class="ln-dash"/>
+  <rect x="280" y="40" width="130" height="56" rx="8" class="box-warn"/>
+  <text x="345" y="62" text-anchor="middle" class="tsm twarn">URGENT</text>
+  <text x="345" y="83" text-anchor="middle" class="tsm">MQTTMSGGET #1</text>
+  <rect x="420" y="40" width="130" height="56" rx="8" class="box"/>
+  <text x="485" y="62" text-anchor="middle" class="tsm mut">NORMAL</text>
+  <text x="485" y="83" text-anchor="middle" class="tsm">AT+CSQ</text>
+  <rect x="560" y="40" width="130" height="56" rx="8" class="box"/>
+  <text x="625" y="62" text-anchor="middle" class="tsm mut">NORMAL</text>
+  <text x="625" y="83" text-anchor="middle" class="tsm">AT+CGATT?</text>
+  <rect x="700" y="40" width="130" height="56" rx="8" class="box-mut"/>
+  <text x="765" y="73" text-anchor="middle" class="tsm fnt">空</text>
+
+  <path d="M485 100 L620 148" class="ln-mut" marker-end="url(#f5-a)"/>
+  <path d="M625 100 L760 148" class="ln-mut" marker-end="url(#f5-a)"/>
+  <text x="772" y="124" class="tsm mut">memmove 右移</text>
+
+  <text x="40" y="136" class="tsm mut">Submit(URGENT：MQTTMSGGET #2) 之后</text>
+  <rect x="40" y="152" width="200" height="56" rx="8" class="box-acc"/>
+  <text x="140" y="174" text-anchor="middle" class="tsm tacc">active_request</text>
+  <text x="140" y="195" text-anchor="middle" class="tsm">AT+MPUBEX（不被打断）</text>
+  <line x1="260" y1="148" x2="260" y2="212" class="ln-dash"/>
+  <rect x="280" y="152" width="130" height="56" rx="8" class="box-warn"/>
+  <text x="345" y="174" text-anchor="middle" class="tsm twarn">URGENT</text>
+  <text x="345" y="195" text-anchor="middle" class="tsm">MQTTMSGGET #1</text>
+  <rect x="420" y="152" width="130" height="56" rx="8" class="box-warn" style="stroke-width:2.6"/>
+  <text x="485" y="174" text-anchor="middle" class="tsm twarn">URGENT · 新</text>
+  <text x="485" y="195" text-anchor="middle" class="tsm">MQTTMSGGET #2</text>
+  <rect x="560" y="152" width="130" height="56" rx="8" class="box"/>
+  <text x="625" y="174" text-anchor="middle" class="tsm mut">NORMAL</text>
+  <text x="625" y="195" text-anchor="middle" class="tsm">AT+CSQ</text>
+  <rect x="700" y="152" width="130" height="56" rx="8" class="box"/>
+  <text x="765" y="174" text-anchor="middle" class="tsm mut">NORMAL</text>
+  <text x="765" y="195" text-anchor="middle" class="tsm">AT+CGATT?</text>
+  <text x="140" y="230" text-anchor="middle" class="tsm">当前事务不被抢占</text>
+  <text x="555" y="230" text-anchor="middle" class="tsm twarn">插在最后一个 URGENT 之后、第一个 NORMAL 之前</text>
+</svg>
+<figcaption><b>图 5　URGENT 只改变"下一个是谁"，不打断正在进行的事务。</b>同优先级内保持先进先出，两次缓存通知对应的读取不会颠倒顺序。</figcaption>
+</figure>
+
+<div class="code"><div class="codehead"><span class="cpath">lib/ATClient/src/ATClient.c</span><span class="clines">L71–96</span><span class="ctitle">Submit：满则拒绝；URGENT 找到插入点后右移</span></div><pre><code>    <span class="k">if</span> (client-&gt;queue_count &gt;= <span class="m">ATCLIENT_QUEUE_CAPACITY</span>)
+    {
+        ++client-&gt;stats.queue_full_count;
+        <span class="k">return</span> <span class="m">ATCLIENT_RESULT_QUEUE_FULL</span>;
+    }
+
+    insert_at = client-&gt;queue_count;
+    <span class="k">if</span> (request-&gt;priority == <span class="m">ATCLIENT_PRIORITY_URGENT</span>)
+    {
+        insert_at = <span class="n">0U</span>;
+        <span class="k">while</span> (insert_at &lt; client-&gt;queue_count &amp;&amp;
+               client-&gt;queue[insert_at].priority == <span class="m">ATCLIENT_PRIORITY_URGENT</span>)
+        {
+            ++insert_at;
+        }
+    }
+
+    <span class="k">if</span> (insert_at &lt; client-&gt;queue_count)
+    {
+        <span class="f">memmove</span>(&amp;client-&gt;queue[insert_at + <span class="n">1U</span>],
+                &amp;client-&gt;queue[insert_at],
+                (client-&gt;queue_count - insert_at) * <span class="k">sizeof</span>(client-&gt;queue[<span class="n">0</span>]));
+    }
+    client-&gt;queue[insert_at] = *request;
+    ++client-&gt;queue_count;
+    <span class="k">return</span> <span class="m">ATCLIENT_RESULT_OK</span>;</code></pre></div>
+
+<p><b>URGENT 为谁准备？</b>Air780E 工作在 MQTT 缓存模式时，收到 <code>+MSUB: &lt;存储位置&gt;</code> 通知后要尽快用 <code>AT+MQTTMSGGET</code> 把消息取走；模组只有 4 个缓存槽，取得慢就会被新消息覆盖。所以 <code>Air780E_SubmitCachedGet()</code> 以 URGENT 提交，而普通的查询、发布都用 NORMAL：</p>
+<div class="code"><div class="codehead"><span class="cpath">lib/Air780E/src/Air780E.c</span><span class="clines">L926–948</span><span class="ctitle">缓存读取以 URGENT 提交</span></div><pre><code><span class="k">static</span> <span class="t">void</span> <span class="f">Air780E_SubmitCachedGet</span>(<span class="t">Air780E</span> *modem)
+{
+    <span class="t">ATClient_Result</span> submit_result;
+
+    <span class="k">if</span> (modem-&gt;mqtt_cache_notices == <span class="n">0U</span> || modem-&gt;mqtt_get_queued)
+    {
+        <span class="k">return</span>;
+    }
+
+    <span class="f">memset</span>(&amp;modem-&gt;mqtt_get_request, <span class="n">0</span>, <span class="k">sizeof</span>(modem-&gt;mqtt_get_request));
+    modem-&gt;mqtt_get_request.build_command = <span class="t">Air780E_BuildMqttGet</span>;
+    modem-&gt;mqtt_get_request.command_context = modem;
+    modem-&gt;mqtt_get_request.timeout_ms = <span class="n">10000U</span>;
+    modem-&gt;mqtt_get_request.priority = <span class="m">ATCLIENT_PRIORITY_URGENT</span>;
+    modem-&gt;mqtt_get_request.on_complete = <span class="t">Air780E_MqttGetComplete</span>;
+    modem-&gt;mqtt_get_request.callback_context = modem;
+    submit_result = <span class="f">ATClient_Submit</span>(modem-&gt;at, &amp;modem-&gt;mqtt_get_request);
+    <span class="k">if</span> (submit_result == <span class="m">ATCLIENT_RESULT_OK</span>)
+    {
+        modem-&gt;mqtt_get_queued = <span class="m">true</span>;
+        modem-&gt;mqtt_cache_notices = <span class="n">0U</span>;
+    }
+}</code></pre></div>
+<div class="code"><div class="codehead"><span class="cpath">test/host_atclient/test_atclient.c</span><span class="clines">L552–584</span><span class="ctitle">测试：URGENT 排在活动事务之后、排队的 NORMAL 之前</span></div><pre><code><span class="k">static</span> <span class="t">int</span> <span class="f">test_urgent_request_runs_after_active_before_queued_normal</span>(<span class="t">void</span>)
+{
+    <span class="t">ATClient</span> client;
+    <span class="t">FakeTransport</span> fake;
+    <span class="t">ATClient_Transport</span> transport;
+    <span class="t">RequestProbe</span> first = {.command = <span class="s">"AT+FIRST"</span>};
+    <span class="t">RequestProbe</span> normal = {.command = <span class="s">"AT+NORMAL"</span>};
+    <span class="t">RequestProbe</span> urgent = {.command = <span class="s">"AT+URGENT"</span>};
+    <span class="t">ATClient_Request</span> first_request = <span class="f">make_request</span>(&amp;first, <span class="m">ATCLIENT_PRIORITY_NORMAL</span>, <span class="n">1000U</span>);
+    <span class="t">ATClient_Request</span> normal_request = <span class="f">make_request</span>(&amp;normal, <span class="m">ATCLIENT_PRIORITY_NORMAL</span>, <span class="n">1000U</span>);
+    <span class="t">ATClient_Request</span> urgent_request = <span class="f">make_request</span>(&amp;urgent, <span class="m">ATCLIENT_PRIORITY_URGENT</span>, <span class="n">1000U</span>);
+
+    <span class="f">reset_transport</span>(&amp;fake);
+    transport = <span class="f">make_transport</span>(&amp;fake);
+    <span class="m">CHECK</span>(<span class="f">ATClient_Init</span>(&amp;client, &amp;transport));
+    <span class="m">CHECK</span>(<span class="f">ATClient_Submit</span>(&amp;client, &amp;first_request) == <span class="m">ATCLIENT_RESULT_OK</span>);
+    <span class="m">CHECK</span>(<span class="f">ATClient_Submit</span>(&amp;client, &amp;normal_request) == <span class="m">ATCLIENT_RESULT_OK</span>);
+    <span class="f">ATClient_Process</span>(&amp;client);
+    <span class="m">CHECK</span>(<span class="f">ATClient_Submit</span>(&amp;client, &amp;urgent_request) == <span class="m">ATCLIENT_RESULT_OK</span>);
+
+    <span class="f">complete_with</span>(&amp;client, <span class="s">"\r\nOK\r\n"</span>);
+    <span class="f">ATClient_Process</span>(&amp;client);
+    <span class="m">CHECK</span>(fake.tx_calls == <span class="n">2U</span>);
+    <span class="m">CHECK</span>(fake.tx_lengths[<span class="n">1</span>] == <span class="f">strlen</span>(<span class="s">"AT+URGENT\r\n"</span>));
+    <span class="m">CHECK</span>(<span class="f">memcmp</span>(fake.tx_data[<span class="n">1</span>], <span class="s">"AT+URGENT\r\n"</span>, fake.tx_lengths[<span class="n">1</span>]) == <span class="n">0</span>);
+
+    <span class="f">complete_with</span>(&amp;client, <span class="s">"\r\nOK\r\n"</span>);
+    <span class="f">ATClient_Process</span>(&amp;client);
+    <span class="m">CHECK</span>(fake.tx_calls == <span class="n">3U</span>);
+    <span class="m">CHECK</span>(fake.tx_lengths[<span class="n">2</span>] == <span class="f">strlen</span>(<span class="s">"AT+NORMAL\r\n"</span>));
+    <span class="m">CHECK</span>(<span class="f">memcmp</span>(fake.tx_data[<span class="n">2</span>], <span class="s">"AT+NORMAL\r\n"</span>, fake.tx_lengths[<span class="n">2</span>]) == <span class="n">0</span>);
+    <span class="k">return</span> <span class="n">1</span>;
+}</code></pre></div>
+
+<div class="pc">
+  <div class="pro"><h4>这样设计的好处</h4><ul>
+    <li><b>串行性由结构保证：</b>只有一个 <code>active_request</code>、一个 <code>command_buffer</code>，两条命令不可能交错发出。</li>
+    <li><b>同优先级内 FIFO：</b>URGENT 之间也保持提交顺序。</li>
+    <li><b>不抢占：</b>模组正在输出 A 的响应时如果插进 B，两条命令的响应会交织在一起，任何解析器都无法可靠地拆开。</li>
+    <li><b>满了明确拒绝：</b>返回 <code>QUEUE_FULL</code> 并计数。Air780E 收到它时保留 <code>command_pending</code>，下一圈再试，命令不会丢。</li>
+  </ul></div>
+  <div class="con"><h4>如果不这样设计</h4><ul>
+    <li><b>不分优先级：</b>缓存读取排在一串 CSQ / CEREG 查询后面，4 个缓存槽可能先被新消息覆盖。</li>
+    <li><b>URGENT 直接插到队首：</b>变成后进先出，连续两条 URGENT 的顺序会颠倒。</li>
+    <li><b>允许抢占活动事务：</b>需要"取消"模组正在执行的命令，而 AT 协议里没有通用的取消手段。</li>
+    <li><b>无界队列（链表 + malloc）：</b>上层 bug 导致疯狂提交时，内存被一点点吃光，而不是得到一个明确的 <code>QUEUE_FULL</code>。</li>
+  </ul></div>
+</div>
+<div class="fn"><span class="lbl">对应函数</span><code>ATClient_Submit</code><code>ATClient_StartNext</code><code>ATClient_IsIdle</code><code class="ext">Air780E_SubmitCachedGet</code></div>
+</section>
+
+<section id="d7">
+<h2><span class="num">07</span>事务状态机：'&gt;' 提示符与零拷贝 payload</h2>
+<p class="lede"><code>AT+MPUBEX=&lt;topic&gt;,&lt;qos&gt;,&lt;retain&gt;,&lt;len&gt;</code> 这类命令分两段发送：先发命令，等模组回一个 <code>'&gt;'</code>，再发恰好 len 字节的原始数据。ATClient 用 5 个状态描述这个过程。</p>
+
+<figure class="dg">
+<svg viewBox="0 30 800 342" role="img" aria-label="事务状态机：IDLE 经 StartNext 进入 TX_ACTIVE；发送完成后无 prompt 进入 WAIT_RESPONSE，有 prompt 进入 WAIT_PROMPT；见到提示符后 StartPayload 进入 PAYLOAD_TX_ACTIVE，发送完成进入 WAIT_RESPONSE；最后一个成功 token 触发 Complete(OK)，任意状态出错或超时触发 Complete(错误码)，两者都回到 IDLE。">
+  <defs>
+    <marker id="f6-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-fg"/></marker>
+    <marker id="f6-isr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-isr"/></marker>
+    <marker id="f6-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-bad"/></marker>
+    <marker id="f6-good" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-good"/></marker>
+    <marker id="f6-mut" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-mut"/></marker>
+  </defs>
+  <rect x="20" y="150" width="120" height="48" rx="10" class="box"/>
+  <text x="80" y="178" text-anchor="middle" class="tm">IDLE</text>
+  <rect x="200" y="150" width="150" height="48" rx="10" class="box-acc"/>
+  <text x="275" y="178" text-anchor="middle" class="tm">TX_ACTIVE</text>
+  <rect x="390" y="50" width="150" height="48" rx="10" class="box-acc"/>
+  <text x="465" y="78" text-anchor="middle" class="tm">WAIT_PROMPT</text>
+  <rect x="610" y="50" width="170" height="48" rx="10" class="box-acc"/>
+  <text x="695" y="78" text-anchor="middle" class="tm">PAYLOAD_TX_ACTIVE</text>
+  <rect x="610" y="150" width="170" height="48" rx="10" class="box-acc"/>
+  <text x="695" y="178" text-anchor="middle" class="tm">WAIT_RESPONSE</text>
+  <rect x="610" y="262" width="170" height="46" rx="10" class="box-good"/>
+  <text x="695" y="290" text-anchor="middle" class="tm">Complete(OK)</text>
+  <rect x="200" y="262" width="340" height="46" rx="10" class="box-err"/>
+  <text x="370" y="281" text-anchor="middle" class="tm">Complete(错误码)</text>
+  <text x="370" y="299" text-anchor="middle" class="tsm mut">超时 / 传输错误 / ERROR / CME / CMS / 行过长</text>
+
+  <path d="M140 174 H196" class="ln" marker-end="url(#f6-a)"/>
+  <text x="170" y="166" text-anchor="middle" class="tsm">StartNext</text>
+  <path d="M350 174 H606" class="ln-isr" marker-end="url(#f6-isr)"/>
+  <text x="478" y="166" text-anchor="middle" class="tsm tisr">OnTxComplete，无 prompt</text>
+  <path d="M300 150 V74 H386" class="ln-isr" marker-end="url(#f6-isr)"/>
+  <text x="308" y="124" class="tsm tisr">OnTxComplete，有 prompt</text>
+  <path d="M540 74 H606" class="ln" marker-end="url(#f6-a)"/>
+  <text x="575" y="67" text-anchor="middle" class="tsm">见到 '&gt;'</text>
+  <path d="M695 98 V146" class="ln-isr" marker-end="url(#f6-isr)"/>
+  <text x="703" y="127" class="tsm tisr">OnTxComplete</text>
+  <path d="M695 198 V258" class="ln-good" marker-end="url(#f6-good)"/>
+  <text x="687" y="234" text-anchor="end" class="tsm tgood">最后一个 success token（或 OK）</text>
+
+  <path d="M275 198 V258" class="ln-bad" marker-end="url(#f6-bad)"/>
+  <path d="M610 190 H520 V258" class="ln-bad" marker-end="url(#f6-bad)"/>
+  <text x="283" y="234" class="tsm tbad">任意活动状态出错或超时</text>
+
+  <path d="M695 308 V336 H80 V202" class="ln-mut" marker-end="url(#f6-mut)"/>
+  <path d="M370 308 V336" class="ln-mut"/>
+  <text x="400" y="356" text-anchor="middle" class="tsm mut">先清空活动事务，再回调 on_complete；同一圈末尾 StartNext 取下一条</text>
+</svg>
+<figcaption><b>图 6　事务状态机。</b>紫色虚线由中断中的 <code>OnTxComplete()</code> 推进，其余转移都在 <code>Process()</code> 中发生。<code>'&gt;'</code> 可能在 TX 完成中断之前就到达，所以处于 <code>TX_ACTIVE</code> 时也会先记下 <code>prompt_seen</code>，等状态进入 <code>WAIT_PROMPT</code> 再调用 <code>StartPayload()</code>。</figcaption>
+</figure>
+
+<p>几个关键细节：</p>
+<ul>
+  <li><b>两个条件都满足才发 payload：</b>命令已发完（状态为 <code>WAIT_PROMPT</code>），并且已经见到提示符（<code>prompt_seen</code>）。</li>
+  <li><b>按字节识别提示符：</b><code>'&gt;'</code> 后面没有 <code>\r\n</code>，按行解析永远等不到它。只有 <code>prompt_byte ≠ 0</code> 且处于 <code>TX_ACTIVE</code> / <code>WAIT_PROMPT</code> 时才识别，普通响应里的 <code>'&gt;'</code> 不受影响。</li>
+  <li><b>payload 零拷贝、原样发送：</b><code>start_tx</code> 直接使用调用者的指针和长度，不追加 <code>\r\n</code>。</li>
+  <li><b>吞掉提示符后的空格：</b>模组通常输出 <code>"&gt; "</code>，<code>StartPayload()</code> 之后紧跟的一个空格会被丢弃，避免污染下一行。</li>
+</ul>
+<div class="code"><div class="codehead"><span class="cpath">lib/ATClient/src/ATClient.c</span><span class="clines">L226–240</span><span class="ctitle">TX 完成：按有无 prompt 分流（在中断中调用，只改状态）</span></div><pre><code><span class="t">void</span> <span class="f">ATClient_OnTxComplete</span>(<span class="t">ATClient</span> *client)
+{
+    <span class="k">if</span> (client != <span class="m">NULL</span> &amp;&amp; client-&gt;has_active_request &amp;&amp;
+        client-&gt;state == <span class="m">ATCLIENT_STATE_TX_ACTIVE</span>)
+    {
+        client-&gt;state = client-&gt;active_request.prompt_byte == <span class="n">0U</span>
+                            ? <span class="m">ATCLIENT_STATE_WAIT_RESPONSE</span>
+                            : <span class="m">ATCLIENT_STATE_WAIT_PROMPT</span>;
+    }
+    <span class="k">else</span> <span class="k">if</span> (client != <span class="m">NULL</span> &amp;&amp; client-&gt;has_active_request &amp;&amp;
+             client-&gt;state == <span class="m">ATCLIENT_STATE_PAYLOAD_TX_ACTIVE</span>)
+    {
+        client-&gt;state = <span class="m">ATCLIENT_STATE_WAIT_RESPONSE</span>;
+    }
+}</code></pre></div>
+<div class="code"><div class="codehead"><span class="cpath">lib/ATClient/src/ATClient.c</span><span class="clines">L381–398 · L415–432</span><span class="ctitle">StartPayload 零拷贝发送 ｜ ProcessRx 中按字节识别提示符</span></div><pre><code><span class="k">static</span> <span class="t">void</span> <span class="f">ATClient_StartPayload</span>(<span class="t">ATClient</span> *client)
+{
+    client-&gt;prompt_seen = <span class="m">false</span>;
+
+    <span class="c">/* Non-blocking: arm the payload transfer and return immediately. The
+     * transport later reports completion through ATClient_OnTxComplete(). */</span>
+    <span class="k">if</span> (!client-&gt;transport.<span class="f">start_tx</span>(client-&gt;transport.context,
+                                    client-&gt;active_request.payload,
+                                    client-&gt;active_request.payload_length))
+    {
+        ++client-&gt;stats.transport_error_count;
+        <span class="f">ATClient_Complete</span>(client, <span class="m">ATCLIENT_RESULT_TRANSPORT_ERROR</span>);
+        <span class="k">return</span>;
+    }
+
+    client-&gt;state = <span class="m">ATCLIENT_STATE_PAYLOAD_TX_ACTIVE</span>;
+    client-&gt;skip_prompt_space = <span class="m">true</span>;
+}
+<span class="elide">    ⋯</span>
+        <span class="k">if</span> (client-&gt;skip_prompt_space)
+        {
+            client-&gt;skip_prompt_space = <span class="m">false</span>;
+            <span class="k">if</span> (byte == (<span class="t">uint8_t</span>)<span class="s">' '</span>)
+            {
+                <span class="k">continue</span>;
+            }
+        }
+
+        <span class="k">if</span> (client-&gt;has_active_request &amp;&amp;
+            client-&gt;active_request.prompt_byte != <span class="n">0U</span> &amp;&amp;
+            (client-&gt;state == <span class="m">ATCLIENT_STATE_TX_ACTIVE</span> ||
+             client-&gt;state == <span class="m">ATCLIENT_STATE_WAIT_PROMPT</span>) &amp;&amp;
+            byte == client-&gt;active_request.prompt_byte)
+        {
+            client-&gt;prompt_seen = <span class="m">true</span>;
+            <span class="k">continue</span>;
+        }</code></pre></div>
+<div class="code"><div class="codehead"><span class="cpath">lib/Air780E/src/Air780E.c</span><span class="clines">L641–662</span><span class="ctitle">设备层：MPUBEX 声明 &#x27;&gt;&#x27; 提示符、payload 与 QoS 对应的确认链</span></div><pre><code>    <span class="k">case</span> <span class="m">AIR780E_MQTT_STEP_MPUBEX</span>:
+        modem-&gt;request.prompt_byte = (<span class="t">uint8_t</span>)<span class="s">'&gt;'</span>;
+        modem-&gt;request.payload = modem-&gt;mqtt_payload;
+        modem-&gt;request.payload_length = modem-&gt;mqtt_payload_length;
+        <span class="k">if</span> (modem-&gt;mqtt_qos == <span class="n">1U</span>)
+        {
+            modem-&gt;request.success_tokens[<span class="n">0</span>] = <span class="s">"OK"</span>;
+            modem-&gt;request.success_tokens[<span class="n">1</span>] = <span class="s">"PUBACK"</span>;
+            modem-&gt;request.success_token_count = <span class="n">2U</span>;
+        }
+        <span class="k">else</span> <span class="k">if</span> (modem-&gt;mqtt_qos == <span class="n">2U</span>)
+        {
+            modem-&gt;request.success_tokens[<span class="n">0</span>] = <span class="s">"OK"</span>;
+            modem-&gt;request.success_tokens[<span class="n">1</span>] = <span class="s">"PUBREC"</span>;
+            modem-&gt;request.success_tokens[<span class="n">2</span>] = <span class="s">"PUBCOMP"</span>;
+            modem-&gt;request.success_token_count = <span class="n">3U</span>;
+        }
+        modem-&gt;request.failure_tokens[<span class="n">0</span>] = <span class="s">"PUBACK FAIL"</span>;
+        modem-&gt;request.failure_tokens[<span class="n">1</span>] = <span class="s">"PUBREC FAIL"</span>;
+        modem-&gt;request.failure_tokens[<span class="n">2</span>] = <span class="s">"CLOSED"</span>;
+        modem-&gt;request.failure_token_count = <span class="n">3U</span>;
+        <span class="k">break</span>;</code></pre></div>
+
+<div class="pc">
+  <div class="pro"><h4>这样设计的好处</h4><ul>
+    <li><b>任意二进制 payload（1~4100 B）：</b>不需要对 JSON 里的引号、换行做 AT 字符串转义。</li>
+    <li><b>不占 ATClient 的 RAM：</b>4100 B 的 payload 直接从调用者缓冲区发出。</li>
+    <li><b>状态显式：</b>任何时刻都说得清"卡在哪一步"，等不到 <code>'&gt;'</code> 就在超时后报 <code>TIMEOUT</code>，不会无限等待。</li>
+  </ul></div>
+  <div class="con"><h4>如果不这样设计</h4><ul>
+    <li><b>命令发完立刻发 payload：</b>模组还没进入数据接收状态，前面的字节被当成命令丢掉，模组随后一直在等凑满 len 字节，双方都卡到超时。</li>
+    <li><b>按行等待 <code>'&gt;'</code>：</b>提示符不带换行，永远凑不成一行，必然超时（<code>test_prompt_can_arrive_without_crlf</code>）。</li>
+    <li><b>在 payload 末尾补 <code>\r\n</code>：</b>多出的两个字节会被模组算进下一条命令或破坏长度（<code>test_payload_is_not_suffixed_with_crlf</code>）。</li>
+    <li><b>把 payload 复制进内部缓冲：</b>需要再预留 4100 B。</li>
+  </ul></div>
+</div>
+<div class="fn"><span class="lbl">对应函数</span><code class="isr">ATClient_OnTxComplete（ISR）</code><code>ATClient_StartPayload（static）</code><code>ATClient_ProcessRx（提示符分支）</code><code class="ext">Air780E_PrepareMqttRequest</code></div>
+</section>
+
+<section id="d8">
+<h2><span class="num">08</span>行分类顺序与多阶段成功 token</h2>
+<p class="lede">"收到 OK"不等于"业务完成"。ATClient 让每条事务声明一个有序的成功序列，并按固定的优先级给收到的每一行分类。</p>
+<div class="tbl"><table>
+<thead><tr><th>Air780E 命令</th><th>success_tokens（按顺序）</th><th>failure_tokens</th></tr></thead>
+<tbody>
+<tr><td><code>AT+MIPSTART</code></td><td><code>OK</code> → <code>CONNECT OK</code></td><td><code>CONNECT FAIL</code> · <code>ALREADY CONNECT</code> · <code>CLOSED</code></td></tr>
+<tr><td><code>AT+MCONNECT</code></td><td><code>OK</code> → <code>CONNACK OK</code></td><td><code>CONNACK FAIL</code> · <code>CLOSED</code></td></tr>
+<tr><td><code>AT+MSUB</code></td><td><code>OK</code> → <code>SUBACK</code></td><td><code>SUBACK FAIL</code> · <code>CLOSED</code></td></tr>
+<tr><td><code>AT+MPUBEX</code> QoS 0</td><td>（未声明，默认 <code>OK</code>）</td><td rowspan="3" style="vertical-align:middle"><code>PUBACK FAIL</code> · <code>PUBREC FAIL</code> · <code>CLOSED</code></td></tr>
+<tr><td><code>AT+MPUBEX</code> QoS 1</td><td><code>OK</code> → <code>PUBACK</code></td></tr>
+<tr><td><code>AT+MPUBEX</code> QoS 2</td><td><code>OK</code> → <code>PUBREC</code> → <code>PUBCOMP</code></td></tr>
+</tbody></table></div>
+
+<figure class="dg">
+<svg viewBox="0 0 800 446" role="img" aria-label="HandleLine 判定顺序：依次检查命令回显、通用错误、失败 token、当前成功 token、默认 OK、URC 前缀，都不命中时交给 on_line；前五步只在存在活动事务时进行。">
+  <defs>
+    <marker id="f7-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-fg"/></marker>
+    <marker id="f7-m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-mut"/></marker>
+  </defs>
+  <path d="M50 16 H42 V306 H50" class="ln-mut"/>
+  <text x="28" y="161" text-anchor="middle" class="tsm mut" transform="rotate(-90 28 161)">仅当存在活动事务</text>
+
+  <g class="tsm">
+    <rect x="60" y="16" width="340" height="42" rx="8" class="box"/>
+    <text x="80" y="42">① 与本条命令的回显完全相同？</text>
+    <rect x="60" y="78" width="340" height="42" rx="8" class="box"/>
+    <text x="80" y="104">② ERROR / +CME ERROR: / +CMS ERROR:？</text>
+    <rect x="60" y="140" width="340" height="42" rx="8" class="box"/>
+    <text x="80" y="166">③ 等于某个 failure_token？</text>
+    <rect x="60" y="202" width="340" height="42" rx="8" class="box"/>
+    <text x="80" y="228">④ 等于 success_tokens[当前下标]？</text>
+    <rect x="60" y="264" width="340" height="42" rx="8" class="box"/>
+    <text x="80" y="290">⑤ 未声明 token，且等于 "OK"？</text>
+    <rect x="60" y="326" width="340" height="42" rx="8" class="box"/>
+    <text x="80" y="352">⑥ 以某个已注册的 URC 前缀开头？</text>
+    <rect x="60" y="388" width="340" height="42" rx="8" class="box-mut"/>
+    <text x="80" y="414">⑦ 其余行</text>
+
+    <rect x="470" y="16" width="310" height="42" rx="8" class="box-mut"/>
+    <text x="490" y="42" class="mut">忽略（关闭回显前的 echo）</text>
+    <rect x="470" y="78" width="310" height="42" rx="8" class="box-err"/>
+    <text x="490" y="104">Complete(ERROR_RESPONSE / CME / CMS)</text>
+    <rect x="470" y="140" width="310" height="42" rx="8" class="box-err"/>
+    <text x="490" y="166">Complete(ERROR_RESPONSE)</text>
+    <rect x="470" y="202" width="310" height="42" rx="8" class="box-good"/>
+    <text x="490" y="228">下标 +1；已是最后一个 → Complete(OK)</text>
+    <rect x="470" y="264" width="310" height="42" rx="8" class="box-good"/>
+    <text x="490" y="290">Complete(OK)</text>
+    <rect x="470" y="326" width="310" height="42" rx="8" class="box-acc"/>
+    <text x="490" y="352">交给该 URC 的回调，结束</text>
+    <rect x="470" y="388" width="310" height="42" rx="8" class="box"/>
+    <text x="490" y="414">on_line()：交给当前事务（如解析 +CSQ:）</text>
+  </g>
+  <g class="tsm tgood" text-anchor="middle">
+    <path d="M400 37 H466" class="ln" marker-end="url(#f7-a)"/><text x="433" y="31">是</text>
+    <path d="M400 99 H466" class="ln" marker-end="url(#f7-a)"/><text x="433" y="93">是</text>
+    <path d="M400 161 H466" class="ln" marker-end="url(#f7-a)"/><text x="433" y="155">是</text>
+    <path d="M400 223 H466" class="ln" marker-end="url(#f7-a)"/><text x="433" y="217">是</text>
+    <path d="M400 285 H466" class="ln" marker-end="url(#f7-a)"/><text x="433" y="279">是</text>
+    <path d="M400 347 H466" class="ln" marker-end="url(#f7-a)"/><text x="433" y="341">是</text>
+    <path d="M400 409 H466" class="ln" marker-end="url(#f7-a)"/>
+  </g>
+  <g class="tsm mut">
+    <path d="M230 58 V74" class="ln-mut" marker-end="url(#f7-m)"/><text x="238" y="71">否</text>
+    <path d="M230 120 V136" class="ln-mut" marker-end="url(#f7-m)"/><text x="238" y="133">否</text>
+    <path d="M230 182 V198" class="ln-mut" marker-end="url(#f7-m)"/><text x="238" y="195">否</text>
+    <path d="M230 244 V260" class="ln-mut" marker-end="url(#f7-m)"/><text x="238" y="257">否</text>
+    <path d="M230 306 V322" class="ln-mut" marker-end="url(#f7-m)"/><text x="238" y="319">否</text>
+    <path d="M230 368 V384" class="ln-mut" marker-end="url(#f7-m)"/><text x="238" y="381">否</text>
+  </g>
+</svg>
+<figcaption><b>图 7　<code>ATClient_HandleLine()</code> 对每一行的判定顺序。</b>前五步只在有活动事务时进行；空闲时收到的行直接从第 ⑥ 步开始，既不是 URC 又没有活动事务的行会被丢弃。</figcaption>
+</figure>
+
+<p>顺序本身就是设计：</p>
+<ul>
+  <li><b>回显过滤放在最前：</b>执行 <code>ATE0</code> 之前，模组会把命令原样回送；不过滤的话，<code>AT+CSQ</code> 这一行会被当成中间行交给 <code>on_line</code>。</li>
+  <li><b>通用错误先于自定义 token：</b><code>ERROR</code>、<code>+CME ERROR:</code>、<code>+CMS ERROR:</code> 对任何命令都意味着失败，不需要每条命令重复声明。</li>
+  <li><b>失败先于成功：</b>更保守——宁可把可疑的行判为失败，也不误报成功。</li>
+  <li><b>事务判定先于 URC：</b><code>CLOSED</code> 既注册为 URC，也是 <code>MIPSTART</code> 的 failure token。在建链期间出现时，由正在等待的事务立即拿到失败结果，而不必等 30 s 超时。</li>
+  <li><b>URC 先于 on_line：</b><code>+MSUB:</code> 这类异步通知即使夹在某条命令的响应中间，也不会被误当成那条命令的输出。</li>
+</ul>
+<div class="code"><div class="codehead"><span class="cpath">lib/ATClient/src/ATClient.c</span><span class="clines">L474–552</span><span class="ctitle">HandleLine：一行文本的完整判定顺序</span></div><pre><code><span class="k">static</span> <span class="t">void</span> <span class="f">ATClient_HandleLine</span>(<span class="t">ATClient</span> *client,
+                                <span class="k">const</span> <span class="t">char</span> *line,
+                                <span class="t">size_t</span> length)
+{
+    <span class="t">size_t</span> index;
+
+    <span class="k">if</span> (client-&gt;has_active_request &amp;&amp; length == client-&gt;command_length &amp;&amp;
+        <span class="f">memcmp</span>(line, client-&gt;command_buffer, length) == <span class="n">0</span>)
+    {
+        <span class="k">return</span>;
+    }
+
+    <span class="k">if</span> (client-&gt;has_active_request)
+    {
+        <span class="k">if</span> (length == <span class="n">5U</span> &amp;&amp; <span class="f">memcmp</span>(line, <span class="s">"ERROR"</span>, <span class="n">5U</span>) == <span class="n">0</span>)
+        {
+            <span class="f">ATClient_Complete</span>(client, <span class="m">ATCLIENT_RESULT_ERROR_RESPONSE</span>);
+            <span class="k">return</span>;
+        }
+        <span class="k">if</span> (length &gt;= <span class="n">11U</span> &amp;&amp; <span class="f">memcmp</span>(line, <span class="s">"+CME ERROR:"</span>, <span class="n">11U</span>) == <span class="n">0</span>)
+        {
+            <span class="f">ATClient_Complete</span>(client, <span class="m">ATCLIENT_RESULT_CME_ERROR</span>);
+            <span class="k">return</span>;
+        }
+        <span class="k">if</span> (length &gt;= <span class="n">11U</span> &amp;&amp; <span class="f">memcmp</span>(line, <span class="s">"+CMS ERROR:"</span>, <span class="n">11U</span>) == <span class="n">0</span>)
+        {
+            <span class="f">ATClient_Complete</span>(client, <span class="m">ATCLIENT_RESULT_CMS_ERROR</span>);
+            <span class="k">return</span>;
+        }
+
+        <span class="k">for</span> (index = <span class="n">0U</span>;
+             index &lt; client-&gt;active_request.failure_token_count;
+             ++index)
+        {
+            <span class="k">if</span> (<span class="f">ATClient_LineEquals</span>(line,
+                                    length,
+                                    client-&gt;active_request.failure_tokens[index]))
+            {
+                <span class="f">ATClient_Complete</span>(client, <span class="m">ATCLIENT_RESULT_ERROR_RESPONSE</span>);
+                <span class="k">return</span>;
+            }
+        }
+
+        <span class="k">if</span> (client-&gt;active_request.success_token_count &gt; <span class="n">0U</span> &amp;&amp;
+            <span class="f">ATClient_LineEquals</span>(
+                line,
+                length,
+                client-&gt;active_request
+                    .success_tokens[client-&gt;success_token_index]))
+        {
+            ++client-&gt;success_token_index;
+            <span class="k">if</span> (client-&gt;success_token_index &gt;=
+                client-&gt;active_request.success_token_count)
+            {
+                <span class="f">ATClient_Complete</span>(client, <span class="m">ATCLIENT_RESULT_OK</span>);
+            }
+            <span class="k">return</span>;
+        }
+
+        <span class="k">if</span> (client-&gt;active_request.success_token_count == <span class="n">0U</span> &amp;&amp;
+            length == <span class="n">2U</span> &amp;&amp; <span class="f">memcmp</span>(line, <span class="s">"OK"</span>, <span class="n">2U</span>) == <span class="n">0</span>)
+        {
+            <span class="f">ATClient_Complete</span>(client, <span class="m">ATCLIENT_RESULT_OK</span>);
+            <span class="k">return</span>;
+        }
+    }
+
+    <span class="k">if</span> (<span class="f">ATClient_DispatchUrc</span>(client, line, length))
+    {
+        <span class="k">return</span>;
+    }
+
+    <span class="k">if</span> (client-&gt;has_active_request &amp;&amp; client-&gt;active_request.on_line != <span class="m">NULL</span>)
+    {
+        client-&gt;active_request.<span class="f">on_line</span>(client-&gt;active_request.callback_context,
+                                       line,
+                                       length);
+    }
+}</code></pre></div>
+<div class="code"><div class="codehead"><span class="cpath">lib/Air780E/src/Air780E.c</span><span class="clines">L616–632</span><span class="ctitle">设备层：MIPSTART / MCONNECT 声明两段确认</span></div><pre><code>    <span class="k">case</span> <span class="m">AIR780E_MQTT_STEP_MIPSTART</span>:
+        modem-&gt;request.success_tokens[<span class="n">0</span>] = <span class="s">"OK"</span>;
+        modem-&gt;request.success_tokens[<span class="n">1</span>] = <span class="s">"CONNECT OK"</span>;
+        modem-&gt;request.success_token_count = <span class="n">2U</span>;
+        modem-&gt;request.failure_tokens[<span class="n">0</span>] = <span class="s">"CONNECT FAIL"</span>;
+        modem-&gt;request.failure_tokens[<span class="n">1</span>] = <span class="s">"ALREADY CONNECT"</span>;
+        modem-&gt;request.failure_tokens[<span class="n">2</span>] = <span class="s">"CLOSED"</span>;
+        modem-&gt;request.failure_token_count = <span class="n">3U</span>;
+        <span class="k">break</span>;
+    <span class="k">case</span> <span class="m">AIR780E_MQTT_STEP_MCONNECT</span>:
+        modem-&gt;request.success_tokens[<span class="n">0</span>] = <span class="s">"OK"</span>;
+        modem-&gt;request.success_tokens[<span class="n">1</span>] = <span class="s">"CONNACK OK"</span>;
+        modem-&gt;request.success_token_count = <span class="n">2U</span>;
+        modem-&gt;request.failure_tokens[<span class="n">0</span>] = <span class="s">"CONNACK FAIL"</span>;
+        modem-&gt;request.failure_tokens[<span class="n">1</span>] = <span class="s">"CLOSED"</span>;
+        modem-&gt;request.failure_token_count = <span class="n">2U</span>;
+        <span class="k">break</span>;</code></pre></div>
+
+<div class="pc">
+  <div class="pro"><h4>这样设计的好处</h4><ul>
+    <li><b>真正的"完成"语义：</b>对 <code>MIPSTART</code> 来说，<code>on_complete(OK)</code> 意味着 TCP 已经连上，而不只是"命令被接受"。</li>
+    <li><b>通用层零模组知识：</b><code>CONNECT OK</code>、<code>PUBACK</code> 都来自描述符。</li>
+    <li><b>一个框架覆盖 1~3 段确认：</b>QoS 0/1/2 只是 token 数量不同。</li>
+  </ul></div>
+  <div class="con"><h4>如果不这样设计</h4><ul>
+    <li><b>收到 OK 就完成：</b>设备层得在 ATClient 之外再写一套"等 CONNECT OK"的状态机和超时；而且在这段等待期间 ATClient 认为自己已经空闲，会把下一条命令插进来，与尚未到达的 <code>CONNECT OK</code> 交织。</li>
+    <li><b>先分发 URC 再判事务：</b>注册了 <code>CLOSED</code> URC 之后，<code>MIPSTART</code> 就再也看不到 <code>CLOSED</code> 这个失败信号，只能干等超时。</li>
+    <li><b>没有回显过滤：</b><code>ATE0</code> 生效前的每条命令都会多出一行"噪声"中间行。</li>
+  </ul></div>
+</div>
+<div class="fn"><span class="lbl">对应函数</span><code>ATClient_HandleLine（static）</code><code>ATClient_LineEquals（static）</code><code>ATClient_DispatchUrc（static）</code><code>ATClient_Complete（static）</code></div>
+</section>
+
+<section id="d9">
+<h2><span class="num">09</span>唯一的完成出口：先清状态，再回调，只回调一次</h2>
+<p class="lede">所有结束路径——OK、ERROR、CME / CMS、failure token、超时、传输错误、行过长、命令构造失败——都汇入同一个 <code>ATClient_Complete()</code>。</p>
+<p>它的顺序是固定的：先把 <code>on_complete</code> 和 <code>callback_context</code> 取到局部变量，再 <code>memset</code> 清空 <code>active_request</code>、复位状态和 token 下标，<strong>最后</strong>才调用回调。开头的 <code>has_active_request</code> 检查是一道守卫，重复调用会直接返回。</p>
+<div class="code"><div class="codehead"><span class="cpath">lib/ATClient/src/ATClient.c</span><span class="clines">L554–578</span><span class="ctitle">所有结束路径的唯一出口</span></div><pre><code><span class="k">static</span> <span class="t">void</span> <span class="f">ATClient_Complete</span>(<span class="t">ATClient</span> *client, <span class="t">ATClient_Result</span> result)
+{
+    <span class="t">ATClient_CompleteCallback</span> callback;
+    <span class="t">void</span> *context;
+
+    <span class="k">if</span> (!client-&gt;has_active_request)
+    {
+        <span class="k">return</span>;
+    }
+
+    callback = client-&gt;active_request.on_complete;
+    context = client-&gt;active_request.callback_context;
+    <span class="f">memset</span>(&amp;client-&gt;active_request, <span class="n">0</span>, <span class="k">sizeof</span>(client-&gt;active_request));
+    client-&gt;has_active_request = <span class="m">false</span>;
+    client-&gt;state = <span class="m">ATCLIENT_STATE_IDLE</span>;
+    client-&gt;command_length = <span class="n">0U</span>;
+    client-&gt;prompt_seen = <span class="m">false</span>;
+    client-&gt;skip_prompt_space = <span class="m">false</span>;
+    client-&gt;success_token_index = <span class="n">0U</span>;
+
+    <span class="k">if</span> (callback != <span class="m">NULL</span>)
+    {
+        <span class="f">callback</span>(context, result);
+    }
+}</code></pre></div>
+
+<div class="pc">
+  <div class="pro"><h4>这样设计的好处</h4><ul>
+    <li><b>恰好回调一次：</b>同一圈 Process 中，<code>ProcessRx()</code> 已因 OK 完成事务，随后的超时判断看到 <code>has_active_request == false</code> 就不会再报一次 <code>TIMEOUT</code>。<code>test_timeout_does_not_poll_or_block</code> 在超时后再调一次 Process，断言回调次数仍是 1。</li>
+    <li><b>回调里看到的是一致的状态：</b>此时 <code>ATClient_IsIdle()</code> 的结果是准确的；回调里再次进入 ATClient（例如提交新事务）也不会看到"已结束但仍标记为活动"的半截事务。</li>
+    <li><b>新事务零延迟：</b>回调里 Submit 的事务会在同一次 Process 末尾的 <code>StartNext()</code> 中立即发出。</li>
+    <li><b>不残留旧指针：</b>已完成事务的 payload、context 指针被清零，不会被后续逻辑误用。</li>
+    <li><b>新增错误路径成本低：</b>清理逻辑只写一遍，任何新路径只需调用 <code>ATClient_Complete(client, 某结果)</code>。</li>
+  </ul></div>
+  <div class="con"><h4>如果不这样设计</h4><ul>
+    <li><b>各条路径各自清理：</b>迟早有一条路径漏掉 <code>prompt_seen</code> 或 <code>success_token_index</code> 的复位，下一条命令就继承了上一条的半截状态。</li>
+    <li><b>先回调再清状态：</b>回调期间事务仍标记为活动，<code>IsIdle()</code> 给出错误答案；若回调间接再次进入 ATClient，同一事务可能被再次完成、再次回调。</li>
+    <li><b>没有守卫：</b>响应和超时在同一圈到达时回调两次，设备层状态机会连跳两步。</li>
+  </ul></div>
+</div>
+<div class="code code-bad"><div class="codehead"><span class="ctag">反例</span><span class="ctitle">先回调、后清理（示意，非本工程代码）</span></div><pre><code><span class="k">static</span> <span class="t">void</span> <span class="f">Complete_Bad</span>(<span class="t">ATClient</span> *client, <span class="t">ATClient_Result</span> result)
+{
+    client-&gt;active_request.<span class="f">on_complete</span>(client-&gt;active_request.callback_context,
+                                       result);
+    <span class="c">/* 回调执行期间 has_active_request 仍为 true：
+     * IsIdle() 返回错误结果，重入时还可能再次完成同一事务 */</span>
+    client-&gt;has_active_request = <span class="m">false</span>;
+    client-&gt;state = <span class="m">ATCLIENT_STATE_IDLE</span>;
+    <span class="c">/* 漏掉 prompt_seen / success_token_index 复位，下一条命令从中间状态开始 */</span>
+}</code></pre></div>
+<div class="tip">设备层有一条配套约定：Air780E（以及 ML307C 的设计）的完成回调<strong>只更新阶段和 pending 标志</strong>，下一条命令在下一次 <code>Air780E_Process()</code> 中才提交。这样启动序列 <code>AT → ATE0 → … → AT+CGATT?</code> 不会在回调里层层递归，调用栈深度始终是常数。</div>
+<div class="fn"><span class="lbl">对应函数</span><code>ATClient_Complete（static）</code><code class="ext">调用点：StartNext · StartPayload · ProcessRx · HandleLine · Process</code></div>
+</section>
+
+<section id="d10">
+<h2><span class="num">10</span>回绕安全的超时，通用层不做重试</h2>
+<p class="lede">超时判断只有一行：<code>(uint32_t)(now_ms − started_ms) &gt;= timeout_ms</code>。</p>
+<p><code>started_ms</code> 在 <code>StartNext()</code> 调用 <code>start_tx</code> 之前记录，所以超时覆盖"发命令 → 等提示符 → 发 payload → 等全部确认"的整个过程。<code>HAL_GetTick()</code> 是 32 位毫秒计数，约 49.7 天回绕一次；无符号减法在回绕时仍然给出正确的经过时间。</p>
+<div class="code"><div class="codehead"><span class="cpath">lib/ATClient/src/ATClient.c</span><span class="clines">L282–290</span><span class="ctitle">一次无符号减法完成超时判断</span></div><pre><code>    <span class="k">if</span> (client-&gt;has_active_request)
+    {
+        now_ms = client-&gt;transport.<span class="f">get_time_ms</span>(client-&gt;transport.context);
+        <span class="k">if</span> ((<span class="t">uint32_t</span>)(now_ms - client-&gt;started_ms) &gt;=
+            client-&gt;active_request.timeout_ms)
+        {
+            <span class="f">ATClient_Complete</span>(client, <span class="m">ATCLIENT_RESULT_TIMEOUT</span>);
+        }
+    }</code></pre></div>
+<div class="code code-bad"><div class="codehead"><span class="ctag">反例</span><span class="ctitle">用&quot;截止时刻&quot;比较（示意，非本工程代码）</span></div><pre><code><span class="t">uint32_t</span> deadline = started_ms + timeout_ms; <span class="c">/* 0xFFFFFFF0 + 32 回绕成 0x00000010 */</span>
+<span class="k">if</span> (now_ms &gt;= deadline)                      <span class="c">/* now = 0xFFFFFFF1 &gt;= 0x10，立刻误报超时 */</span>
+{
+    <span class="f">Complete</span>(client, <span class="m">ATCLIENT_RESULT_TIMEOUT</span>);
+}
+<span class="c">/* 正确写法：(uint32_t)(0xFFFFFFF1 - 0xFFFFFFF0) = 1 &lt; 32，继续等待 */</span></code></pre></div>
+<div class="code"><div class="codehead"><span class="cpath">test/host_atclient/test_atclient.c</span><span class="clines">L495–519</span><span class="ctitle">测试：把时钟设在回绕点前 15 ms，验证 31 ms 时不超时、32 ms 时超时</span></div><pre><code><span class="k">static</span> <span class="t">int</span> <span class="f">test_timeout_across_tick_wrap</span>(<span class="t">void</span>)
+{
+    <span class="t">ATClient</span> client;
+    <span class="t">FakeTransport</span> fake;
+    <span class="t">ATClient_Transport</span> transport;
+    <span class="t">RequestProbe</span> probe = {.command = <span class="s">"AT+WRAP"</span>};
+    <span class="t">ATClient_Request</span> request = <span class="f">make_request</span>(&amp;probe, <span class="m">ATCLIENT_PRIORITY_NORMAL</span>, <span class="n">32U</span>);
+
+    <span class="f">reset_transport</span>(&amp;fake);
+    fake.now_ms = <span class="m">UINT32_MAX</span> - <span class="n">15U</span>;
+    transport = <span class="f">make_transport</span>(&amp;fake);
+    <span class="m">CHECK</span>(<span class="f">ATClient_Init</span>(&amp;client, &amp;transport));
+    <span class="m">CHECK</span>(<span class="f">ATClient_Submit</span>(&amp;client, &amp;request) == <span class="m">ATCLIENT_RESULT_OK</span>);
+    <span class="f">ATClient_Process</span>(&amp;client);
+    <span class="f">ATClient_OnTxComplete</span>(&amp;client);
+
+    fake.now_ms = <span class="n">15U</span>;
+    <span class="f">ATClient_Process</span>(&amp;client);
+    <span class="m">CHECK</span>(probe.completion_calls == <span class="n">0U</span>);
+    fake.now_ms = <span class="n">16U</span>;
+    <span class="f">ATClient_Process</span>(&amp;client);
+    <span class="m">CHECK</span>(probe.completion_calls == <span class="n">1U</span>);
+    <span class="m">CHECK</span>(probe.result == <span class="m">ATCLIENT_RESULT_TIMEOUT</span>);
+    <span class="k">return</span> <span class="n">1</span>;
+}</code></pre></div>
+
+<p><b>为什么通用层不自动重试？</b>重试次数、间隔和"能不能重试"都属于业务判断。<code>AT+MPUBEX</code> 超时可能只是 <code>PUBACK</code> 来得慢，重发会造成消息重复发布；而 MQTT 断线又需要指数退避。所以 ATClient 只如实报告结果，由设备层决定策略：</p>
+<div class="code"><div class="codehead"><span class="cpath">lib/Air780E/src/Air780E.c</span><span class="clines">L1194–1225</span><span class="ctitle">设备层的重连策略：1 / 2 / 4 / 8 / 16 / 30 s 指数退避</span></div><pre><code><span class="k">static</span> <span class="t">void</span> <span class="f">Air780E_ScheduleMqttReconnect</span>(<span class="t">Air780E</span> *modem)
+{
+    <span class="k">static</span> <span class="k">const</span> <span class="t">uint32_t</span> delays_ms[] = {
+        <span class="n">1000U</span>, <span class="n">2000U</span>, <span class="n">4000U</span>, <span class="n">8000U</span>, <span class="n">16000U</span>, <span class="n">30000U</span>,
+    };
+    <span class="t">uint8_t</span> index;
+
+    <span class="k">if</span> (!modem-&gt;mqtt_configured || !modem-&gt;mqtt_config.auto_reconnect ||
+        modem-&gt;mqtt_user_disconnect)
+    {
+        <span class="f">Air780E_SetState</span>(modem, <span class="m">AIR780E_STATE_OFFLINE</span>);
+        <span class="k">return</span>;
+    }
+    <span class="k">if</span> (modem-&gt;mqtt_reconnect_waiting)
+    {
+        <span class="k">return</span>;
+    }
+
+    index = modem-&gt;mqtt_reconnect_index;
+    <span class="k">if</span> (index &gt;= <span class="k">sizeof</span>(delays_ms) / <span class="k">sizeof</span>(delays_ms[<span class="n">0</span>]))
+    {
+        index = (<span class="t">uint8_t</span>)(<span class="k">sizeof</span>(delays_ms) / <span class="k">sizeof</span>(delays_ms[<span class="n">0</span>]) - <span class="n">1U</span>);
+    }
+    modem-&gt;mqtt_reconnect_due_ms = <span class="f">ATClient_NowMs</span>(modem-&gt;at) + delays_ms[index];
+    <span class="k">if</span> (modem-&gt;mqtt_reconnect_index &lt;
+        <span class="k">sizeof</span>(delays_ms) / <span class="k">sizeof</span>(delays_ms[<span class="n">0</span>]) - <span class="n">1U</span>)
+    {
+        ++modem-&gt;mqtt_reconnect_index;
+    }
+    modem-&gt;mqtt_reconnect_waiting = <span class="m">true</span>;
+    <span class="f">Air780E_SetState</span>(modem, <span class="m">AIR780E_STATE_RECONNECT_WAIT</span>);
+}</code></pre></div>
+
+<div class="pc">
+  <div class="pro"><h4>这样设计的好处</h4><ul>
+    <li><b>连续运行 49.7 天以上</b>也不会出现"假超时"或"永不超时"。</li>
+    <li><b>可以在测试里直接验证回绕：</b>时钟是注入的，把它设到 <code>UINT32_MAX − 15</code> 即可。</li>
+    <li><b>超时的语义清晰：</b>一个值覆盖整条事务，设备层不必分别估算"发送时间"和"等待时间"。</li>
+    <li><b>重试策略留给懂业务的一层：</b>非幂等命令不会被通用层擅自重发。</li>
+  </ul></div>
+  <div class="con"><h4>如果不这样设计</h4><ul>
+    <li><b>比较截止时刻：</b>在回绕点附近提交的命令会被立即判超时，或者（换一种写法）永远不超时，而且要连续运行 49.7 天才会触发一次。</li>
+    <li><b>通用层自动重试：</b>发布类命令被重复执行；设备层也无从得知"第一次到底失败在哪里"。</li>
+  </ul></div>
+</div>
+<div class="fn"><span class="lbl">对应函数</span><code>ATClient_Process（超时判断）</code><code>ATClient_StartNext（记录 started_ms）</code><code>ATClient_NowMs</code><code class="ext">Air780E_ScheduleMqttReconnect</code></div>
+</section>
+
+<section id="d11">
+<h2><span class="num">11</span>URC 前缀注册表</h2>
+<p class="lede">URC（非请求结果码）是模组主动上报的行，可能在空闲时到达，也可能夹在任何一条命令的响应中间。ATClient 用最多 8 个"前缀 → 回调"的注册项来分发它们。</p>
+<p>注册时预先用 <code>strlen</code> 算好 <code>prefix_length</code>，分发时每个注册项只做一次长度比较和一次 <code>memcmp</code>，第一个命中即返回。同一前缀重复注册会原地更新回调和上下文（幂等），不会多占槽位。空闲时收到的行同样经过 URC 分发。</p>
+<div class="code"><div class="codehead"><span class="cpath">lib/ATClient/src/ATClient.c</span><span class="clines">L99–141 · L589–608</span><span class="ctitle">注册：预存长度、重复即更新 ｜ 分发：前缀匹配，第一个命中即返回</span></div><pre><code><span class="t">ATClient_Result</span> <span class="f">ATClient_RegisterUrc</span>(<span class="t">ATClient</span> *client,
+                                     <span class="k">const</span> <span class="t">char</span> *prefix,
+                                     <span class="t">ATClient_UrcCallback</span> callback,
+                                     <span class="t">void</span> *context)
+{
+    <span class="t">size_t</span> prefix_length;
+    <span class="t">size_t</span> index;
+
+    <span class="k">if</span> (client == <span class="m">NULL</span> || prefix == <span class="m">NULL</span> || callback == <span class="m">NULL</span>)
+    {
+        <span class="k">return</span> <span class="m">ATCLIENT_RESULT_INVALID_ARGUMENT</span>;
+    }
+
+    prefix_length = <span class="f">strlen</span>(prefix);
+    <span class="k">if</span> (prefix_length == <span class="n">0U</span> || prefix_length &gt;= <span class="m">ATCLIENT_LINE_CAPACITY</span>)
+    {
+        <span class="k">return</span> <span class="m">ATCLIENT_RESULT_INVALID_ARGUMENT</span>;
+    }
+
+    <span class="k">for</span> (index = <span class="n">0U</span>; index &lt; client-&gt;urc_count; ++index)
+    {
+        <span class="k">if</span> (client-&gt;urcs[index].prefix_length == prefix_length &amp;&amp;
+            <span class="f">memcmp</span>(client-&gt;urcs[index].prefix, prefix, prefix_length) == <span class="n">0</span>)
+        {
+            client-&gt;urcs[index].prefix = prefix;
+            client-&gt;urcs[index].callback = callback;
+            client-&gt;urcs[index].context = context;
+            <span class="k">return</span> <span class="m">ATCLIENT_RESULT_OK</span>;
+        }
+    }
+
+    <span class="k">if</span> (client-&gt;urc_count &gt;= <span class="m">ATCLIENT_URC_CAPACITY</span>)
+    {
+        <span class="k">return</span> <span class="m">ATCLIENT_RESULT_QUEUE_FULL</span>;
+    }
+
+    client-&gt;urcs[client-&gt;urc_count].prefix = prefix;
+    client-&gt;urcs[client-&gt;urc_count].prefix_length = prefix_length;
+    client-&gt;urcs[client-&gt;urc_count].callback = callback;
+    client-&gt;urcs[client-&gt;urc_count].context = context;
+    ++client-&gt;urc_count;
+    <span class="k">return</span> <span class="m">ATCLIENT_RESULT_OK</span>;
+}
+<span class="elide">    ⋯</span>
+<span class="k">static</span> <span class="t">bool</span> <span class="f">ATClient_DispatchUrc</span>(<span class="t">ATClient</span> *client,
+                                 <span class="k">const</span> <span class="t">char</span> *line,
+                                 <span class="t">size_t</span> length)
+{
+    <span class="t">size_t</span> index;
+
+    <span class="k">for</span> (index = <span class="n">0U</span>; index &lt; client-&gt;urc_count; ++index)
+    {
+        <span class="k">const</span> <span class="t">ATClient_UrcRegistration</span> *registration = &amp;client-&gt;urcs[index];
+
+        <span class="k">if</span> (length &gt;= registration-&gt;prefix_length &amp;&amp;
+            <span class="f">memcmp</span>(line, registration-&gt;prefix, registration-&gt;prefix_length) == <span class="n">0</span>)
+        {
+            registration-&gt;<span class="f">callback</span>(registration-&gt;context, line, length);
+            <span class="k">return</span> <span class="m">true</span>;
+        }
+    }
+
+    <span class="k">return</span> <span class="m">false</span>;
+}</code></pre></div>
+<div class="code"><div class="codehead"><span class="cpath">lib/Air780E/src/Air780E.c</span><span class="clines">L103–119</span><span class="ctitle">Air780E 在 Init 中一次性注册长度帧和 3 个 URC</span></div><pre><code>    <span class="f">memset</span>(&amp;frame_registration, <span class="n">0</span>, <span class="k">sizeof</span>(frame_registration));
+    frame_registration.prefix = <span class="s">"+MSUB:"</span>;
+    frame_registration.probe = <span class="t">Air780E_MqttFrameProbe</span>;
+    frame_registration.on_begin = <span class="t">Air780E_MqttFrameBegin</span>;
+    frame_registration.on_data = <span class="t">Air780E_MqttFrameData</span>;
+    frame_registration.on_end = <span class="t">Air780E_MqttFrameEnd</span>;
+    frame_registration.context = modem;
+    <span class="k">return</span> <span class="f">ATClient_RegisterLengthFrame</span>(at, &amp;frame_registration) ==
+               <span class="m">ATCLIENT_RESULT_OK</span> &amp;&amp;
+           <span class="f">ATClient_RegisterUrc</span>(at, <span class="s">"+MSUB:"</span>, <span class="t">Air780E_CacheUrc</span>, modem) ==
+               <span class="m">ATCLIENT_RESULT_OK</span> &amp;&amp;
+           <span class="f">ATClient_RegisterUrc</span>(at, <span class="s">"CLOSED"</span>, <span class="t">Air780E_ClosedUrc</span>, modem) ==
+               <span class="m">ATCLIENT_RESULT_OK</span> &amp;&amp;
+           <span class="f">ATClient_RegisterUrc</span>(at,
+                                <span class="s">"+MQTTSTATU:"</span>,
+                                <span class="t">Air780E_MqttStatusUrc</span>,
+                                modem) == <span class="m">ATCLIENT_RESULT_OK</span>;</code></pre></div>
+
+<div class="pc">
+  <div class="pro"><h4>这样设计的好处</h4><ul>
+    <li><b>无关 URC 不污染当前事务：</b><code>test_unrelated_urc_during_command_is_dispatched_only</code> 验证，命令执行期间插进来的 URC 只会到 URC 回调，不会进 <code>on_line</code>。</li>
+    <li><b>空闲时的 URC 不丢：</b><code>test_registered_urc_while_idle</code>。</li>
+    <li><b>重复 Init 安全：</b>设备层重新初始化不会耗尽 8 个槽位。</li>
+    <li><b>开销固定：</b>前缀长度只算一次，分发是 O(注册数) 次 memcmp。</li>
+  </ul></div>
+  <div class="con"><h4>如果不这样设计</h4><ul>
+    <li><b>所有行都交给当前事务的 on_line：</b>每个设备层回调都得自己识别 <code>+MSUB:</code>、<code>CLOSED</code>；空闲时没有 on_line 可交，URC 直接丢失——掉线通知恰恰最常在空闲时到来。</li>
+    <li><b>分发时才 strlen：</b>每一行都要对每个前缀重新计算长度，白白消耗 CPU。</li>
+    <li><b>重复注册就追加：</b>同一前缀出现两个处理器，第二个永远不会被调用，还占着槽位。</li>
+  </ul></div>
+</div>
+<div class="fn"><span class="lbl">对应函数</span><code>ATClient_RegisterUrc</code><code>ATClient_DispatchUrc（static）</code><code class="ext">Air780E_Init</code><code class="ext">Air780E_ClosedUrc</code><code class="ext">Air780E_CacheUrc</code></div>
+<div class="note"><b>注意：</b>注册表只保存前缀指针，不复制字符串。前缀必须是字符串字面量或与 ATClient 同寿命的内存。</div>
+</section>
+
+<section id="d12">
+<h2><span class="num">12</span>长度帧：大 payload 流式透传</h2>
+<p class="lede">Air780E 读取缓存消息时输出 <code>+MSUB: &lt;topic&gt;,&lt;len&gt;,&lt;payload&gt;</code>，payload 最长 4100 B，而且可能包含 <code>\r\n</code>、<code>0x00</code>。它既不能按行解析，也不应该整帧缓存。ATClient 为此提供"长度帧"机制：通用层只理解"前缀、帧头、长度、字节流"四个概念。</p>
+
+<figure class="dg">
+<svg viewBox="0 0 880 352" role="img" aria-label="长度帧解析：帧头在 LINE 模式下逐字节进入行缓冲并调用 probe，得到 READY 后调用 on_begin 并切换到 FRAME_PAYLOAD 模式，从环形缓冲中直接分块调用 on_data，长度用完后 on_end 并回到 LINE 模式；payload 跨过环形缓冲末尾时分两次交付。">
+  <defs>
+    <marker id="f8-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-fg"/></marker>
+    <marker id="f8-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-acc"/></marker>
+  </defs>
+  <path d="M40 50 V43 H298 V50" class="ln-mut"/>
+  <text x="169" y="36" text-anchor="middle" class="tsm">帧头 ≤ 383 B，进入 line_buffer</text>
+  <path d="M300 50 V43 H758 V50" class="ln-acc"/>
+  <text x="529" y="36" text-anchor="middle" class="tsm tacc">payload：按声明长度透传，二进制安全</text>
+
+  <rect x="40" y="56" width="78" height="38" class="box-mut"/><text x="79" y="80" text-anchor="middle" class="tm">+MSUB: </text>
+  <rect x="118" y="56" width="92" height="38" class="box-mut"/><text x="164" y="80" text-anchor="middle" class="tm">dev/cmd</text>
+  <rect x="210" y="56" width="18" height="38" class="box-mut"/><text x="219" y="80" text-anchor="middle" class="tm">,</text>
+  <rect x="228" y="56" width="52" height="38" class="box-mut"/><text x="254" y="80" text-anchor="middle" class="tm">4100</text>
+  <rect x="280" y="56" width="18" height="38" class="box-mut"/><text x="289" y="80" text-anchor="middle" class="tm">,</text>
+  <rect x="300" y="56" width="458" height="38" class="box-acc"/>
+  <text x="529" y="80" text-anchor="middle" class="tm">… 'A' \r \n 0x00 '&gt;' ',' 'Z' …（4100 B）</text>
+  <rect x="760" y="56" width="42" height="38" class="box-mut"/><text x="781" y="80" text-anchor="middle" class="tm">\r\n</text>
+
+  <line x1="155" y1="96" x2="155" y2="118" class="ln-dash"/>
+  <line x1="529" y1="96" x2="529" y2="118" class="ln-dash"/>
+
+  <rect x="40" y="120" width="230" height="76" rx="8" class="box"/>
+  <text x="155" y="142" text-anchor="middle" class="ts">LINE 模式</text>
+  <text x="155" y="162" text-anchor="middle" class="tsm">每追加 1 字节调用一次 probe()</text>
+  <text x="155" y="183" text-anchor="middle" class="tm mut">NEED_MORE … → READY(4100)</text>
+  <path d="M270 158 H326" class="ln" marker-end="url(#f8-a)"/>
+  <text x="298" y="150" text-anchor="middle" class="tsm">on_begin</text>
+  <rect x="330" y="120" width="428" height="76" rx="8" class="box-acc"/>
+  <text x="544" y="142" text-anchor="middle" class="ts">FRAME_PAYLOAD 模式</text>
+  <text x="544" y="162" text-anchor="middle" class="tsm">不分行、不认提示符，直接从 rx_buffer 切出连续块</text>
+  <text x="544" y="183" text-anchor="middle" class="tm mut">on_data(指针, n) × N</text>
+  <path d="M758 158 H786" class="ln" marker-end="url(#f8-a)"/>
+  <text x="792" y="154" class="tsm">on_end(OK)</text>
+  <text x="792" y="173" class="tsm mut">回到 LINE</text>
+
+  <text x="40" y="226" class="tsm fnt">payload 跨过 rx_buffer 末尾时，分两次 on_data()</text>
+  <text x="40" y="245" class="tsm fnt">[0]</text>
+  <text x="800" y="245" text-anchor="end" class="tsm fnt">[1023]</text>
+  <rect x="40" y="250" width="760" height="34" class="box"/>
+  <rect x="40" y="250" width="200" height="34" class="box-acc"/>
+  <text x="140" y="272" text-anchor="middle" class="tsm">第 2 块：[0] → head</text>
+  <text x="400" y="272" text-anchor="middle" class="tsm fnt">已消费 / 空闲</text>
+  <rect x="560" y="250" width="240" height="34" class="box-acc"/>
+  <text x="680" y="272" text-anchor="middle" class="tsm">第 1 块：tail → [1023]</text>
+  <path d="M800 284 C 860 336, -20 336, 40 288" class="ln-acc" marker-end="url(#f8-acc)"/>
+  <text x="420" y="318" text-anchor="middle" class="tsm tacc">回绕</text>
+  <text x="420" y="346" text-anchor="middle" class="tsm mut">每块长度 = min(到数组末尾的连续字节, 已到达字节, 剩余声明长度)</text>
+</svg>
+<figcaption><b>图 8　长度帧解析。</b>帧头走普通的行缓冲，由设备层提供的 <code>probe()</code> 判断"是不是我的帧、帧头完整了没有、payload 多长"；一旦确定长度，payload 就绕开行解析，直接从环形缓冲按块交给回调，payload 之后的 <code>\r\n</code> 作为空行被自然丢弃。</figcaption>
+</figure>
+
+<p>探针的返回值只有四种：</p>
+<div class="tbl"><table>
+<thead><tr><th>probe 返回</th><th>含义</th><th>ATClient 的处理</th></tr></thead>
+<tbody>
+<tr><td><code>ATCLIENT_FRAME_NO_MATCH</code></td><td>不是我的帧</td><td>继续尝试下一个注册项；都不匹配就按普通行处理</td></tr>
+<tr><td><code>ATCLIENT_FRAME_NEED_MORE</code></td><td>前缀像，但帧头还不完整</td><td>继续累积字节，下一字节再问</td></tr>
+<tr><td><code>ATCLIENT_FRAME_READY</code></td><td>帧头完整，给出 payload 长度</td><td>校验 ≤ 4100 → <code>on_begin</code> → 切到 <code>FRAME_PAYLOAD</code>；长度为 0 时立即 <code>on_end</code></td></tr>
+<tr><td><code>ATCLIENT_FRAME_ERROR</code></td><td>帧头格式错误</td><td><code>protocol_error_count++</code>，丢弃本行直到下一个换行</td></tr>
+</tbody></table></div>
+
+<div class="code"><div class="codehead"><span class="cpath">lib/ATClient/src/ATClient.h</span><span class="clines">L98–129</span><span class="ctitle">长度帧的通用接口：只有前缀、探针和三个流式回调</span></div><pre><code><span class="k">typedef</span> <span class="k">enum</span>
+{
+    <span class="m">ATCLIENT_FRAME_NO_MATCH</span> = <span class="n">0</span>,
+    <span class="m">ATCLIENT_FRAME_NEED_MORE</span>,
+    <span class="m">ATCLIENT_FRAME_READY</span>,
+    <span class="m">ATCLIENT_FRAME_ERROR</span>
+} <span class="t">ATClient_FrameProbeResult</span>;
+
+<span class="k">typedef</span> <span class="f">ATClient_FrameProbeResult</span> (*<span class="t">ATClient_LengthFrameProbe</span>)(
+    <span class="t">void</span> *context,
+    <span class="k">const</span> <span class="t">uint8_t</span> *header,
+    <span class="t">size_t</span> header_length,
+    <span class="t">size_t</span> *payload_length);
+<span class="k">typedef</span> <span class="t">void</span> (*<span class="t">ATClient_LengthFrameBegin</span>)(<span class="t">void</span> *context,
+                                          <span class="k">const</span> <span class="t">uint8_t</span> *header,
+                                          <span class="t">size_t</span> header_length,
+                                          <span class="t">size_t</span> payload_length);
+<span class="k">typedef</span> <span class="t">void</span> (*<span class="t">ATClient_LengthFrameData</span>)(<span class="t">void</span> *context,
+                                         <span class="k">const</span> <span class="t">uint8_t</span> *data,
+                                         <span class="t">size_t</span> length);
+<span class="k">typedef</span> <span class="t">void</span> (*<span class="t">ATClient_LengthFrameEnd</span>)(<span class="t">void</span> *context,
+                                        <span class="t">ATClient_Result</span> result);
+
+<span class="k">typedef</span> <span class="k">struct</span>
+{
+    <span class="k">const</span> <span class="t">char</span> *prefix;
+    <span class="t">ATClient_LengthFrameProbe</span> probe;
+    <span class="t">ATClient_LengthFrameBegin</span> on_begin;
+    <span class="t">ATClient_LengthFrameData</span> on_data;
+    <span class="t">ATClient_LengthFrameEnd</span> on_end;
+    <span class="t">void</span> *context;
+} <span class="t">ATClient_LengthFrameRegistration</span>;</code></pre></div>
+<div class="code"><div class="codehead"><span class="cpath">lib/ATClient/src/ATClient.c</span><span class="clines">L400–408 · L610–662</span><span class="ctitle">ProcessRx 的模式分流 ｜ CheckLengthFrame：每追加一个字节就询问探针</span></div><pre><code><span class="k">static</span> <span class="t">void</span> <span class="f">ATClient_ProcessRx</span>(<span class="t">ATClient</span> *client)
+{
+    <span class="k">while</span> (client-&gt;rx_tail != client-&gt;rx_head)
+    {
+        <span class="k">if</span> (client-&gt;parser_state == <span class="m">ATCLIENT_PARSER_FRAME_PAYLOAD</span>)
+        {
+            <span class="f">ATClient_ProcessFramePayload</span>(client);
+            <span class="k">continue</span>;
+        }
+<span class="elide">    ⋯</span>
+<span class="k">static</span> <span class="t">void</span> <span class="f">ATClient_CheckLengthFrame</span>(<span class="t">ATClient</span> *client)
+{
+    <span class="t">size_t</span> index;
+
+    <span class="k">for</span> (index = <span class="n">0U</span>; index &lt; client-&gt;length_frame_count; ++index)
+    {
+        <span class="t">ATClient_LengthFrameSlot</span> *slot = &amp;client-&gt;length_frames[index];
+        <span class="t">ATClient_FrameProbeResult</span> result;
+        <span class="t">size_t</span> payload_length = <span class="n">0U</span>;
+
+        result = slot-&gt;registration.<span class="f">probe</span>(
+            slot-&gt;registration.context,
+            (<span class="k">const</span> <span class="t">uint8_t</span> *)client-&gt;line_buffer,
+            client-&gt;line_length,
+            &amp;payload_length);
+
+        <span class="k">if</span> (result == <span class="m">ATCLIENT_FRAME_READY</span>)
+        {
+            <span class="k">if</span> (payload_length &gt; <span class="m">ATCLIENT_FRAME_PAYLOAD_MAX</span>)
+            {
+                ++client-&gt;stats.protocol_error_count;
+                client-&gt;discarding_line = <span class="m">true</span>;
+                client-&gt;line_length = <span class="n">0U</span>;
+                <span class="k">return</span>;
+            }
+
+            client-&gt;active_length_frame = index;
+            client-&gt;frame_payload_remaining = payload_length;
+            client-&gt;parser_state = <span class="m">ATCLIENT_PARSER_FRAME_PAYLOAD</span>;
+            slot-&gt;registration.<span class="f">on_begin</span>(slot-&gt;registration.context,
+                                        (<span class="k">const</span> <span class="t">uint8_t</span> *)client-&gt;line_buffer,
+                                        client-&gt;line_length,
+                                        payload_length);
+            client-&gt;line_length = <span class="n">0U</span>;
+
+            <span class="k">if</span> (payload_length == <span class="n">0U</span>)
+            {
+                slot-&gt;registration.<span class="f">on_end</span>(slot-&gt;registration.context,
+                                          <span class="m">ATCLIENT_RESULT_OK</span>);
+                client-&gt;parser_state = <span class="m">ATCLIENT_PARSER_LINE</span>;
+            }
+            <span class="k">return</span>;
+        }
+
+        <span class="k">if</span> (result == <span class="m">ATCLIENT_FRAME_ERROR</span>)
+        {
+            ++client-&gt;stats.protocol_error_count;
+            client-&gt;discarding_line = <span class="m">true</span>;
+            client-&gt;line_length = <span class="n">0U</span>;
+            <span class="k">return</span>;
+        }
+    }
+}</code></pre></div>
+<div class="code"><div class="codehead"><span class="cpath">lib/ATClient/src/ATClient.c</span><span class="clines">L664–698</span><span class="ctitle">ProcessFramePayload：从环形缓冲按连续块交付，零拷贝</span></div><pre><code><span class="k">static</span> <span class="t">void</span> <span class="f">ATClient_ProcessFramePayload</span>(<span class="t">ATClient</span> *client)
+{
+    <span class="t">ATClient_LengthFrameSlot</span> *slot =
+        &amp;client-&gt;length_frames[client-&gt;active_length_frame];
+    <span class="t">uint32_t</span> tail = client-&gt;rx_tail;
+    <span class="t">size_t</span> available =
+        (<span class="t">size_t</span>)(<span class="t">uint32_t</span>)(client-&gt;rx_head - client-&gt;rx_tail);
+    <span class="t">size_t</span> tail_index = (<span class="t">size_t</span>)(tail % <span class="m">ATCLIENT_RX_CAPACITY</span>);
+    <span class="t">size_t</span> contiguous = <span class="m">ATCLIENT_RX_CAPACITY</span> - tail_index;
+
+    <span class="k">if</span> (contiguous &gt; available)
+    {
+        contiguous = available;
+    }
+    <span class="k">if</span> (contiguous &gt; client-&gt;frame_payload_remaining)
+    {
+        contiguous = client-&gt;frame_payload_remaining;
+    }
+
+    <span class="k">if</span> (contiguous &gt; <span class="n">0U</span>)
+    {
+        slot-&gt;registration.<span class="f">on_data</span>(slot-&gt;registration.context,
+                                   &amp;client-&gt;rx_buffer[tail_index],
+                                   contiguous);
+        client-&gt;rx_tail = tail + (<span class="t">uint32_t</span>)contiguous;
+        client-&gt;frame_payload_remaining -= contiguous;
+    }
+
+    <span class="k">if</span> (client-&gt;frame_payload_remaining == <span class="n">0U</span>)
+    {
+        slot-&gt;registration.<span class="f">on_end</span>(slot-&gt;registration.context,
+                                  <span class="m">ATCLIENT_RESULT_OK</span>);
+        client-&gt;parser_state = <span class="m">ATCLIENT_PARSER_LINE</span>;
+    }
+}</code></pre></div>
+
+<p>设备层的探针负责理解 <code>+MSUB:</code> 的具体格式。它只在"第二个逗号恰好是帧头最后一个字节"时返回 READY，topic 超长、长度含非数字或超过 4100 都返回 ERROR：</p>
+<div class="code"><div class="codehead"><span class="cpath">lib/Air780E/src/Air780E.c</span><span class="clines">L1004–1028 · L1055–1077</span><span class="ctitle">Air780E_MqttFrameProbe 节选</span></div><pre><code><span class="k">static</span> <span class="t">ATClient_FrameProbeResult</span> <span class="f">Air780E_MqttFrameProbe</span>(
+    <span class="t">void</span> *context,
+    <span class="k">const</span> <span class="t">uint8_t</span> *header,
+    <span class="t">size_t</span> header_length,
+    <span class="t">size_t</span> *payload_length)
+{
+    <span class="k">static</span> <span class="k">const</span> <span class="t">char</span> prefix[] = <span class="s">"+MSUB:"</span>;
+    <span class="k">const</span> <span class="t">size_t</span> prefix_length = <span class="k">sizeof</span>(prefix) - <span class="n">1U</span>;
+    <span class="t">size_t</span> index;
+    <span class="t">size_t</span> topic_start;
+    <span class="t">size_t</span> topic_end = <span class="n">0U</span>;
+    <span class="t">size_t</span> value = <span class="n">0U</span>;
+    <span class="t">bool</span> has_length_digit = <span class="m">false</span>;
+
+    (<span class="t">void</span>)context;
+    <span class="k">if</span> (header_length &lt;= prefix_length)
+    {
+        <span class="k">return</span> <span class="f">memcmp</span>(header, prefix, header_length) == <span class="n">0</span>
+                   ? <span class="m">ATCLIENT_FRAME_NEED_MORE</span>
+                   : <span class="m">ATCLIENT_FRAME_NO_MATCH</span>;
+    }
+    <span class="k">if</span> (<span class="f">memcmp</span>(header, prefix, prefix_length) != <span class="n">0</span>)
+    {
+        <span class="k">return</span> <span class="m">ATCLIENT_FRAME_NO_MATCH</span>;
+    }
+<span class="elide">    ⋯</span>
+        <span class="k">if</span> (header[index] == (<span class="t">uint8_t</span>)<span class="s">','</span>)
+        {
+            <span class="k">if</span> (!has_length_digit || index + <span class="n">1U</span> != header_length)
+            {
+                <span class="k">return</span> <span class="m">ATCLIENT_FRAME_ERROR</span>;
+            }
+            *payload_length = value;
+            <span class="k">return</span> value &lt;= <span class="m">ATCLIENT_FRAME_PAYLOAD_MAX</span>
+                       ? <span class="m">ATCLIENT_FRAME_READY</span>
+                       : <span class="m">ATCLIENT_FRAME_ERROR</span>;
+        }
+        <span class="k">if</span> (header[index] &lt; (<span class="t">uint8_t</span>)<span class="s">'0'</span> || header[index] &gt; (<span class="t">uint8_t</span>)<span class="s">'9'</span>)
+        {
+            <span class="k">return</span> <span class="m">ATCLIENT_FRAME_ERROR</span>;
+        }
+        has_length_digit = <span class="m">true</span>;
+        value = value * <span class="n">10U</span> + (<span class="t">size_t</span>)(header[index] - (<span class="t">uint8_t</span>)<span class="s">'0'</span>);
+        <span class="k">if</span> (value &gt; <span class="m">ATCLIENT_FRAME_PAYLOAD_MAX</span>)
+        {
+            <span class="k">return</span> <span class="m">ATCLIENT_FRAME_ERROR</span>;
+        }
+    }
+    <span class="k">return</span> <span class="m">ATCLIENT_FRAME_NEED_MORE</span>;</code></pre></div>
+
+<div class="tip"><b>同一前缀，两种语义。</b>Air780E 把 <code>"+MSUB:"</code> 同时注册成长度帧和 URC。缓存通知 <code>+MSUB: 0</code> 没有 "topic,长度," 结构，探针一直返回 NEED_MORE，直到换行后作为普通行交给 <code>Air780E_CacheUrc()</code> 记下这次通知，随后由 <code>Air780E_Process()</code> 提交 URGENT 的 <code>MQTTMSGGET</code>；而 <code>+MSUB: dev/cmd,12,</code> 在第二个逗号处就被探针认领为长度帧。两者共享前缀而互不干扰。</div>
+
+<div class="pc">
+  <div class="pro"><h4>这样设计的好处</h4><ul>
+    <li><b>4100 B payload 不占额外 RAM：</b>只需 384 B 行缓冲装帧头，数据直接从已有的 1024 B 环形缓冲交给回调。</li>
+    <li><b>二进制安全：</b><code>test_split_length_frame_streams_4100_binary_bytes</code> 用含 <code>\r</code>、<code>\n</code>、<code>0x00</code>、<code>'&gt;'</code>、<code>','</code> 的 4100 B 数据、按 257 B 小块推入，逐字节比对。</li>
+    <li><b>任意分片都能正确拼接：</b>帧头跨多次 DMA 到达（NEED_MORE），payload 跨过环形缓冲末尾（分块），都被测试覆盖。</li>
+    <li><b>不信任错误的长度：</b>声明长度超过 4100 或帧头格式错误时，计数并丢弃该行，而不是按一个错误的长度吞掉后续所有数据。</li>
+    <li><b>通用：</b>ML307C 的 <code>+MHTTPREAD:</code> 正文复用同一机制，ATClient 不需要改动。</li>
+  </ul></div>
+  <div class="con"><h4>如果不这样设计</h4><ul>
+    <li><b>按行解析：</b>payload 中的 <code>\r\n</code> 会把一条消息切成多行，还会撑爆 384 B 行缓冲（<code>LINE_TOO_LONG</code>）。</li>
+    <li><b>先读进大缓冲再解析：</b>单条 4100 B，四个缓存槽就是 16.4 KB（图 4）。</li>
+    <li><b>要求 payload 在缓冲中连续：</b>payload 比 1024 B 的环形缓冲还大，根本放不下；分块回调消除了这个限制。</li>
+    <li><b>通用层解析 MQTT 字段：</b>换成 HTTP 或别的模组就要改库。</li>
+  </ul></div>
+</div>
+<div class="fn"><span class="lbl">对应函数</span><code>ATClient_RegisterLengthFrame</code><code>ATClient_CheckLengthFrame（static）</code><code>ATClient_ProcessFramePayload（static）</code><code class="ext">Air780E_MqttFrameProbe / Begin / Data / End</code></div>
+</section>
+
+<section id="d13">
+<h2><span class="num">13</span>所有权与生命周期：复制描述符，不复制数据</h2>
+<p class="lede">小而固定的结构按值复制，换取调用者的自由；大块数据坚持零拷贝，换取 RAM。头文件用一句注释写明了这条契约。</p>
+<div class="code"><div class="codehead"><span class="cpath">lib/ATClient/src/ATClient.h</span><span class="clines">L160–161</span><span class="ctitle">ATClient 结构体上方的契约注释</span></div><pre><code><span class="c">/* The object uses fixed storage only. Request callback contexts must remain
+ * valid from ATClient_Submit() until the completion callback runs. */</span></code></pre></div>
+<div class="tbl"><table>
+<thead><tr><th>对象</th><th>ATClient 是否复制</th><th>调用者须保证有效到</th></tr></thead>
+<tbody>
+<tr><td><code>ATClient_Transport</code></td><td>复制（Init 时）</td><td>其 <code>context</code> 指向的对象与 ATClient 同寿命</td></tr>
+<tr><td><code>ATClient_Request</code> 结构体本身</td><td>复制（Submit 时入队）</td><td>Submit 返回后即可复用或修改</td></tr>
+<tr><td>payload 数据</td><td>不复制，零拷贝发送</td><td><code>on_complete</code> 返回</td></tr>
+<tr><td><code>command_context</code> / <code>callback_context</code></td><td>不复制</td><td><code>on_complete</code> 返回</td></tr>
+<tr><td>success / failure token 字符串</td><td>不复制，只存指针</td><td><code>on_complete</code> 返回（通常用字符串字面量）</td></tr>
+<tr><td>URC、长度帧注册中的 prefix 与 context</td><td>不复制</td><td>与 ATClient 同寿命</td></tr>
+<tr><td>回调收到的 <code>line</code> / <code>header</code> / <code>data</code> 指针</td><td>指向内部缓冲</td><td>仅在回调执行期间有效，需要长期保存请自行复制</td></tr>
+</tbody></table></div>
+<p>测试 <code>test_payload_pointer_is_not_copied</code> 把这条契约写成了可执行的断言：提交之后、提示符到达之前修改 payload 内容，实际发出的是修改后的数据。它证明了零拷贝，也提醒调用者在完成回调之前不能改动缓冲区。</p>
+<div class="code"><div class="codehead"><span class="cpath">test/host_atclient/test_atclient.c</span><span class="clines">L666–691</span><span class="ctitle">零拷贝契约的测试</span></div><pre><code><span class="k">static</span> <span class="t">int</span> <span class="f">test_payload_pointer_is_not_copied</span>(<span class="t">void</span>)
+{
+    <span class="t">ATClient</span> client;
+    <span class="t">FakeTransport</span> fake;
+    <span class="t">ATClient_Transport</span> transport;
+    <span class="t">RequestProbe</span> probe = {.command = <span class="s">"AT+SEND=3"</span>};
+    <span class="t">uint8_t</span> payload[] = {<span class="s">'o'</span>, <span class="s">'l'</span>, <span class="s">'d'</span>};
+    <span class="t">ATClient_Request</span> request = <span class="f">make_payload_request</span>(&amp;probe,
+                                                    payload,
+                                                    <span class="k">sizeof</span>(payload));
+
+    <span class="f">reset_transport</span>(&amp;fake);
+    transport = <span class="f">make_transport</span>(&amp;fake);
+    <span class="m">CHECK</span>(<span class="f">ATClient_Init</span>(&amp;client, &amp;transport));
+    <span class="m">CHECK</span>(<span class="f">ATClient_Submit</span>(&amp;client, &amp;request) == <span class="m">ATCLIENT_RESULT_OK</span>);
+    <span class="f">ATClient_Process</span>(&amp;client);
+    <span class="f">ATClient_OnTxComplete</span>(&amp;client);
+    <span class="f">memcpy</span>(payload, <span class="s">"new"</span>, <span class="k">sizeof</span>(payload));
+    <span class="m">CHECK</span>(<span class="f">ATClient_PushRx</span>(&amp;client, (<span class="k">const</span> <span class="t">uint8_t</span> *)<span class="s">"&gt;"</span>, <span class="n">1U</span>) ==
+          <span class="m">ATCLIENT_RESULT_OK</span>);
+    <span class="f">ATClient_Process</span>(&amp;client);
+
+    <span class="m">CHECK</span>(fake.tx_calls == <span class="n">2U</span>);
+    <span class="m">CHECK</span>(<span class="f">memcmp</span>(fake.tx_data[<span class="n">1</span>], <span class="s">"new"</span>, <span class="n">3U</span>) == <span class="n">0</span>);
+    <span class="k">return</span> <span class="n">1</span>;
+}</code></pre></div>
+<div class="pc">
+  <div class="pro"><h4>这样设计的好处</h4><ul>
+    <li>描述符只有 72 B，复制它的代价很小，调用者可以把 request 放在栈上或反复复用。</li>
+    <li>payload、topic、前缀这些可能很大的数据不复制，RAM 占用与消息大小无关。</li>
+  </ul></div>
+  <div class="con"><h4>如果不这样设计</h4><ul>
+    <li><b>什么都复制：</b>队列要为每条事务预留 payload 空间，RAM 成倍增长。</li>
+    <li><b>什么都不复制：</b>调用者栈上的 request 在函数返回后失效，队列里留下悬空指针。</li>
+    <li><b>契约不写明：</b>调用者在发布完成前就复用 payload 缓冲，模组收到的是下一条消息的内容，而且只在高负载时才出现。</li>
+  </ul></div>
+</div>
+</section>
+
+<p class="section-kicker">串起来看</p>
+
+<section id="walk">
+<h2><span class="num">14</span>走读：一次 QoS 1 的 MQTT 发布</h2>
+<p class="lede">把前面的设计放在一条真实事务里：<code>Air780E_MqttPublish()</code> 发布一条 QoS 1 消息，从提交到回调，依次经过 4 个活动状态、两次 DMA 发送和两次 TX 完成中断。</p>
+
+<figure class="dg">
+<svg viewBox="0 0 900 672" role="img" aria-label="QoS1 发布时序：设备层提交请求后立即返回；ATClient 构造命令并启动 DMA；中断通知发送完成；模组回提示符后 ATClient 零拷贝发送 payload；依次收到 OK 与 PUBACK 后完成事务并回调设备层。">
+  <defs>
+    <marker id="f9-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-fg"/></marker>
+    <marker id="f9-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-acc"/></marker>
+    <marker id="f9-isr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-isr"/></marker>
+    <marker id="f9-m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-mut"/></marker>
+  </defs>
+  <rect x="30" y="16" width="170" height="40" rx="8" class="box"/>
+  <text x="115" y="41" text-anchor="middle" class="ts">Air780E 设备层</text>
+  <rect x="265" y="16" width="170" height="40" rx="8" class="box-acc"/>
+  <text x="350" y="41" text-anchor="middle" class="ts">ATClient</text>
+  <rect x="500" y="16" width="170" height="40" rx="8" class="box-isr"/>
+  <text x="585" y="41" text-anchor="middle" class="ts">UART 适配层 / ISR</text>
+  <rect x="720" y="16" width="160" height="40" rx="8" class="box-mut"/>
+  <text x="800" y="41" text-anchor="middle" class="ts">Air780E 模组</text>
+  <g class="ln-dash">
+    <line x1="115" y1="56" x2="115" y2="632"/><line x1="350" y1="56" x2="350" y2="632"/>
+    <line x1="585" y1="56" x2="585" y2="632"/><line x1="800" y1="56" x2="800" y2="632"/>
+  </g>
+
+  <path d="M115 94 H346" class="ln" marker-end="url(#f9-a)"/>
+  <text x="232" y="87" text-anchor="middle" class="tsm">Submit(req)，立即返回</text>
+  <text x="232" y="111" text-anchor="middle" class="tsm mut">prompt '&gt;'，token：OK → PUBACK</text>
+
+  <rect x="360" y="127" width="210" height="26" rx="5" class="box-mut"/>
+  <text x="465" y="145" text-anchor="middle" class="tsm">Process：StartNext 构造命令</text>
+
+  <rect x="225" y="167" width="118" height="22" rx="11" class="box-acc"/>
+  <text x="284" y="182" text-anchor="middle" class="tm">TX_ACTIVE</text>
+  <path d="M350 178 H581" class="ln-acc" marker-end="url(#f9-acc)"/>
+  <text x="467" y="171" text-anchor="middle" class="tsm tacc">start_tx("AT+MPUBEX=…\r\n")</text>
+
+  <path d="M585 212 H796" class="ln-mut" marker-end="url(#f9-m)"/>
+  <text x="692" y="205" text-anchor="middle" class="tsm mut">DMA 发送命令字节</text>
+
+  <rect x="225" y="237" width="118" height="22" rx="11" class="box-acc"/>
+  <text x="284" y="252" text-anchor="middle" class="tm">WAIT_PROMPT</text>
+  <path d="M585 248 H354" class="ln-isr" marker-end="url(#f9-isr)"/>
+  <text x="467" y="241" text-anchor="middle" class="tsm tisr">OnTxComplete()</text>
+
+  <path d="M800 284 H589" class="ln-mut" marker-end="url(#f9-m)"/>
+  <text x="692" y="277" text-anchor="middle" class="tsm mut">"&gt; "</text>
+  <path d="M585 318 H354" class="ln-isr" marker-end="url(#f9-isr)"/>
+  <text x="467" y="311" text-anchor="middle" class="tsm tisr">PushRx("&gt; ")</text>
+
+  <rect x="360" y="342" width="250" height="26" rx="5" class="box-mut"/>
+  <text x="485" y="360" text-anchor="middle" class="tsm">Process：见到 '&gt;' → StartPayload</text>
+
+  <rect x="203" y="383" width="140" height="22" rx="11" class="box-acc"/>
+  <text x="273" y="398" text-anchor="middle" class="tm">PAYLOAD_TX_ACTIVE</text>
+  <path d="M350 394 H581" class="ln-acc" marker-end="url(#f9-acc)"/>
+  <text x="467" y="387" text-anchor="middle" class="tsm tacc">start_tx(payload, len)：零拷贝</text>
+
+  <path d="M585 428 H796" class="ln-mut" marker-end="url(#f9-m)"/>
+  <text x="692" y="421" text-anchor="middle" class="tsm mut">DMA 发送 payload，不加 \r\n</text>
+
+  <rect x="213" y="453" width="130" height="22" rx="11" class="box-acc"/>
+  <text x="278" y="468" text-anchor="middle" class="tm">WAIT_RESPONSE</text>
+  <path d="M585 464 H354" class="ln-isr" marker-end="url(#f9-isr)"/>
+  <text x="467" y="457" text-anchor="middle" class="tsm tisr">OnTxComplete()</text>
+
+  <rect x="225" y="491" width="118" height="22" rx="11" class="box-mut"/>
+  <text x="284" y="506" text-anchor="middle" class="tm">token 1 / 2</text>
+  <path d="M800 502 H354" class="ln-mut" marker-end="url(#f9-m)"/>
+  <text x="577" y="495" text-anchor="middle" class="tsm mut">"OK"（经 PushRx 进入环形缓冲）</text>
+
+  <rect x="225" y="529" width="118" height="22" rx="11" class="box-good"/>
+  <text x="284" y="544" text-anchor="middle" class="tm">token 2 / 2</text>
+  <path d="M800 540 H354" class="ln-mut" marker-end="url(#f9-m)"/>
+  <text x="577" y="533" text-anchor="middle" class="tsm mut">"PUBACK"（经 PushRx）</text>
+
+  <rect x="360" y="562" width="300" height="26" rx="5" class="box-mut"/>
+  <text x="510" y="580" text-anchor="middle" class="tsm">HandleLine 命中最后一个 token → Complete(OK)</text>
+
+  <path d="M350 612 H119" class="ln" marker-end="url(#f9-a)"/>
+  <text x="232" y="605" text-anchor="middle" class="tsm">on_complete(OK)</text>
+
+  <path d="M40 656 H80" class="ln"/><text x="88" y="660" class="tsm mut">主循环中的调用</text>
+  <path d="M220 656 H260" class="ln-acc"/><text x="268" y="660" class="tsm mut">启动一次 DMA 发送</text>
+  <path d="M420 656 H460" class="ln-isr"/><text x="468" y="660" class="tsm mut">中断上下文中的调用</text>
+  <path d="M630 656 H670" class="ln-mut"/><text x="678" y="660" class="tsm mut">串口线上的字节</text>
+</svg>
+<figcaption><b>图 9　一次 QoS 1 发布的完整时序。</b>左侧胶囊是 ATClient 当时的状态。每一段"等待"——等 DMA、等 <code>'&gt;'</code>、等 <code>PUBACK</code>——都只是状态停留，主循环在这些间隙里照常运行传感器和蜂鸣器任务。</figcaption>
+</figure>
+
+<ol>
+  <li><b>提交（§05、§06）：</b>Air780E 填好描述符（<code>prompt_byte = '&gt;'</code>、payload 指针、<code>OK → PUBACK</code>、超时 30 s）后调用 <code>ATClient_Submit()</code>，描述符被复制进队列，函数立即返回。</li>
+  <li><b>发命令（§02、§05）：</b>下一次 <code>ATClient_Process()</code> 中，<code>StartNext()</code> 出队、调用 <code>build_command</code> 写入 <code>command_buffer</code>、追加 <code>\r\n</code>、记下 <code>started_ms</code>，调用 <code>start_tx()</code> 后返回。</li>
+  <li><b>等提示符（§03、§07）：</b>DMA 发完后，中断调用 <code>OnTxComplete()</code> 把状态推到 <code>WAIT_PROMPT</code>；<code>"&gt; "</code> 到达时中断只调用 <code>PushRx()</code>。</li>
+  <li><b>发 payload（§07、§13）：</b>下一圈 Process 在 <code>ProcessRx()</code> 中按字节识别出 <code>'&gt;'</code>，随后 <code>StartPayload()</code> 把调用者的缓冲区原样交给 DMA。</li>
+  <li><b>分阶段确认（§08）：</b><code>OK</code> 命中 <code>success_tokens[0]</code>，事务继续；<code>PUBACK</code> 命中最后一个 token，进入 <code>Complete(OK)</code>。</li>
+  <li><b>完成（§09）：</b><code>Complete()</code> 清空活动事务后回调 <code>on_complete(OK)</code>，Air780E 把发布标记为完成；同一圈末尾 <code>StartNext()</code> 取出下一条排队事务。</li>
+</ol>
+<p>如果中途出现 <code>PUBACK FAIL</code> 或 <code>CLOSED</code>，第 5 步会命中 failure token，以 <code>ERROR_RESPONSE</code> 结束；如果 30 s 内等不到任何一步，则以 <code>TIMEOUT</code> 结束。无论哪种情况，都只走 <code>ATClient_Complete()</code> 这一个出口。</p>
+</section>
+
+<section id="tests">
+<h2><span class="num">15</span>可测试性：在 PC 上验证每一条设计</h2>
+<p class="lede">因为 ATClient 只依赖两个注入函数，主机测试可以用一个结构体完全替代硬件：发送就是记进数组，时间就是一个可以随意拨动的变量，收到的字节由测试直接调用 <code>PushRx()</code> 喂入。</p>
+<div class="code"><div class="codehead"><span class="cpath">test/host_atclient/test_atclient.c</span><span class="clines">L19–27</span><span class="ctitle">伪传输层的全部状态</span></div><pre><code><span class="k">typedef</span> <span class="k">struct</span>
+{
+    <span class="t">uint32_t</span> now_ms;
+    <span class="t">size_t</span> get_time_calls;
+    <span class="t">bool</span> accept_tx;
+    <span class="t">size_t</span> tx_calls;
+    <span class="t">uint8_t</span> tx_data[<span class="n">16</span>][<span class="m">ATCLIENT_COMMAND_CAPACITY</span> + <span class="n">2U</span>];
+    <span class="t">size_t</span> tx_lengths[<span class="n">16</span>];
+} <span class="t">FakeTransport</span>;</code></pre></div>
+<div class="code"><div class="codehead"><span class="cpath">test/host_atclient/test_atclient.c</span><span class="clines">L693–724</span><span class="ctitle">典型用例：只收到 OK 时不能完成，收到 CONNECT OK 才完成</span></div><pre><code><span class="k">static</span> <span class="t">int</span> <span class="f">test_ok_then_connect_ok_required</span>(<span class="t">void</span>)
+{
+    <span class="t">ATClient</span> client;
+    <span class="t">FakeTransport</span> fake;
+    <span class="t">ATClient_Transport</span> transport;
+    <span class="t">RequestProbe</span> probe = {.command = <span class="s">"AT+CONNECT"</span>};
+    <span class="t">ATClient_Request</span> request = <span class="f">make_request</span>(&amp;probe, <span class="m">ATCLIENT_PRIORITY_NORMAL</span>, <span class="n">1000U</span>);
+
+    request.success_tokens[<span class="n">0</span>] = <span class="s">"OK"</span>;
+    request.success_tokens[<span class="n">1</span>] = <span class="s">"CONNECT OK"</span>;
+    request.success_token_count = <span class="n">2U</span>;
+
+    <span class="f">reset_transport</span>(&amp;fake);
+    transport = <span class="f">make_transport</span>(&amp;fake);
+    <span class="m">CHECK</span>(<span class="f">ATClient_Init</span>(&amp;client, &amp;transport));
+    <span class="m">CHECK</span>(<span class="f">ATClient_Submit</span>(&amp;client, &amp;request) == <span class="m">ATCLIENT_RESULT_OK</span>);
+    <span class="f">ATClient_Process</span>(&amp;client);
+    <span class="f">ATClient_OnTxComplete</span>(&amp;client);
+
+    <span class="m">CHECK</span>(<span class="f">ATClient_PushRx</span>(&amp;client, (<span class="k">const</span> <span class="t">uint8_t</span> *)<span class="s">"\r\nOK\r\n"</span>, <span class="n">6U</span>) ==
+          <span class="m">ATCLIENT_RESULT_OK</span>);
+    <span class="f">ATClient_Process</span>(&amp;client);
+    <span class="m">CHECK</span>(probe.completion_calls == <span class="n">0U</span>);
+
+    <span class="m">CHECK</span>(<span class="f">ATClient_PushRx</span>(&amp;client,
+                          (<span class="k">const</span> <span class="t">uint8_t</span> *)<span class="s">"\r\nCONNECT OK\r\n"</span>,
+                          <span class="f">strlen</span>(<span class="s">"\r\nCONNECT OK\r\n"</span>)) == <span class="m">ATCLIENT_RESULT_OK</span>);
+    <span class="f">ATClient_Process</span>(&amp;client);
+    <span class="m">CHECK</span>(probe.completion_calls == <span class="n">1U</span>);
+    <span class="m">CHECK</span>(probe.result == <span class="m">ATCLIENT_RESULT_OK</span>);
+    <span class="k">return</span> <span class="n">1</span>;
+}</code></pre></div>
+<p>测试由 <code>test/host_atclient/run_tests.ps1</code> 调用 gcc 以 <code>-std=c11 -Wall -Wextra -Werror</code> 编译，24 个用例与本文各节的对应关系如下：</p>
+<div class="tbl wrapcode"><table>
+<thead><tr><th>用例</th><th>验证的设计</th></tr></thead>
+<tbody>
+<tr><td><code>test_init_rejects_missing_transport</code> · <code>test_get_time_ms_forwards_injected_clock</code></td><td><a href="#d1">§01</a> 传输层注入</td></tr>
+<tr><td><code>test_rx_ring_wrap_preserves_order</code> · <code>test_rx_overflow_reports_once_and_recovers</code></td><td><a href="#d3">§03</a> 环形缓冲回绕与溢出、<a href="#d4">§04</a> 溢出计数</td></tr>
+<tr><td><code>test_submit_builds_and_starts_tx_without_waiting</code> · <code>test_timeout_does_not_poll_or_block</code></td><td><a href="#d2">§02</a> 非阻塞</td></tr>
+<tr><td><code>test_tx_completion_then_ok_completes_once</code></td><td><a href="#d9">§09</a> 恰好回调一次</td></tr>
+<tr><td><code>test_error_cme_and_cms_results</code> · <code>test_ok_then_connect_ok_required</code> · <code>test_failure_token_finishes_transaction</code></td><td><a href="#d8">§08</a> 行分类与多阶段确认</td></tr>
+<tr><td><code>test_timeout_across_tick_wrap</code></td><td><a href="#d10">§10</a> 回绕安全的超时</td></tr>
+<tr><td><code>test_four_entry_queue_rejects_fifth</code> · <code>test_urgent_request_runs_after_active_before_queued_normal</code></td><td><a href="#d6">§06</a> 队列与优先级</td></tr>
+<tr><td><code>test_prompt_can_arrive_without_crlf</code> · <code>test_payload_starts_only_after_prompt</code> · <code>test_payload_is_not_suffixed_with_crlf</code></td><td><a href="#d7">§07</a> 提示符与 payload</td></tr>
+<tr><td><code>test_payload_pointer_is_not_copied</code></td><td><a href="#d13">§13</a> 零拷贝契约</td></tr>
+<tr><td><code>test_unrelated_urc_during_command_is_dispatched_only</code> · <code>test_registered_urc_while_idle</code></td><td><a href="#d11">§11</a> URC 注册表</td></tr>
+<tr><td><code>test_split_length_frame_streams_4100_binary_bytes</code> · <code>test_back_to_back_length_frames_remain_separate</code> · <code>test_length_frame_header_overflow_is_reported</code> · <code>test_length_frame_over_4100_is_rejected</code> · <code>test_malformed_length_frame_is_rejected</code></td><td><a href="#d12">§12</a> 长度帧</td></tr>
+</tbody></table></div>
+<p>如果库里直接调用 HAL，上面这些场景——4100 B 二进制帧跨环形缓冲末尾、时钟在回绕点附近超时、提示符早于 TX 完成中断到达——几乎都只能靠示波器和运气在板子上复现。</p>
+</section>
+
+<section id="limits">
+<h2><span class="num">16</span>边界与改进建议</h2>
+<p class="lede">以下是阅读源码时发现的隐含前提和可以加固的地方。它们在当前 Air780E 的使用方式下大多不会触发，但在移植或扩展时值得留意。</p>
+<div class="tbl wrapcode limits"><table>
+<colgroup><col style="width:36px"><col style="width:42%"><col style="width:20%"><col></colgroup>
+<thead><tr><th>#</th><th>现象 / 前提</th><th>可能的后果</th><th>建议</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>state</code> 由中断和主循环共同写入：<code>OnTxComplete()</code> 在中断里改 state，而 <code>StartNext()</code> / <code>StartPayload()</code> 在 <code>start_tx()</code> 返回<em>之后</em>才写入 <code>TX_ACTIVE</code> / <code>PAYLOAD_TX_ACTIVE</code>。若 TX 完成中断恰好落在这两步之间（至少要隔一个字节时间 ≈ 87 µs，需主循环被更高优先级中断拖住），它看到的是旧状态而被忽略。</td><td>事务停在 TX_ACTIVE，直到超时</td><td>仿照 <code>transport_error_pending</code>：ISR 只置一个 volatile 的"发送完成"标志，由 Process 推进；或在调用 <code>start_tx()</code> 之前先写好状态、失败时回退。跨上下文的 <code>state</code>、<code>transport_error_pending</code> 也宜声明为 volatile。</td></tr>
+<tr><td>2</td><td>RX 容量必须是 2 的幂：下标 = 计数 % 容量，计数在 2<sup>32</sup> 处回绕。1024 满足条件，但没有编译期检查。</td><td>若改成 1000 之类的值，累计收满约 4 GB 字节时出现一次数据错位，几乎不可能复现</td><td>增加 <code>_Static_assert((ATCLIENT_RX_CAPACITY &amp; (ATCLIENT_RX_CAPACITY - 1U)) == 0U, "…")</code>，并可把 <code>%</code> 换成 <code>&amp; (容量 − 1)</code>。</td></tr>
+<tr><td>3</td><td>成功 token 严格按顺序匹配：若 <code>CONNECT OK</code> 先于 <code>OK</code> 到达，它会被当成中间行。</td><td>事务等不到期望的 token，最终超时</td><td>Air780E 手册中的顺序是固定的，当前可以接受；需要兼容乱序时，可改为"集合匹配 + 已命中位图"。</td></tr>
+<tr><td>4</td><td>事务判定优先于 URC：<code>CLOSED</code> 同时是 URC 和 failure token 时，建链期间的 <code>CLOSED</code> 只会结束事务，<code>Air780E_ClosedUrc()</code> 不会被调用。</td><td>"连接关闭"的处理分散在两处</td><td>Air780E 已在 <code>Air780E_FinishMqttOperation()</code> 中为失败的连接操作安排重连；新的设备层需要同样在失败回调里处理。</td></tr>
+<tr><td>5</td><td>超长行一律结束当前事务，即使那一行其实是无关的 URC。</td><td>偶发的误失败（<code>LINE_TOO_LONG</code>）</td><td>丢弃前检查已缓存的前缀是否属于已注册 URC，只有非 URC 行才结束事务。</td></tr>
+<tr><td>6</td><td><code>skip_prompt_space</code> 在 <code>StartPayload()</code> 中才置位。若 <code>'&gt;'</code> 和其后的空格在同一次 <code>ProcessRx()</code> 中被消费，空格会先进入行缓冲，最后作为一行 <code>" "</code> 交给 <code>on_line</code>。</td><td>多出一行噪声；若模组在最终响应前不输出 <code>\r\n</code>，<code>"OK"</code> 会变成 <code>" OK"</code> 而无法匹配</td><td>在识别到提示符字节时就置位 <code>skip_prompt_space</code>。</td></tr>
+<tr><td>7</td><td><code>BUSY</code>、<code>CANCELLED</code> 结果码已预留，但还没有取消接口。</td><td>用户主动断开时，已排队的命令仍会执行</td><td>需要时增加 <code>ATClient_CancelQueued()</code>，对被丢弃的事务回调 <code>CANCELLED</code>。</td></tr>
+<tr><td>8</td><td>长度帧探针每追加一个字节都从头扫描帧头。帧头最长 383 B，最坏约 7 万次字节比较；注册项越多，开销线性增加。</td><td>72 MHz 下可忽略，注册项增多后值得关注</td><td>探针对本行返回 <code>NO_MATCH</code> 后，本行不再询问该注册项。</td></tr>
+</tbody></table></div>
+</section>
+
+<footer class="footer">
+  本文基于 JPSmartCube 工程源码整理。所有标注文件路径和行号的代码均按行号从源码原样摘录，<span style="font-family:var(--mono)">⋯</span> 处为节选删节；标注"反例"的代码是为说明问题而写的示意，不属于本工程。RAM / Flash 数据取自 <code>.pio/build/genericSTM32F103C8/firmware.elf</code> 的符号表。
+</footer>
+</main>
+</div>
+<script>
+(function () {
+  var links = Array.prototype.slice.call(document.querySelectorAll('.toc a[href^="#"]'));
+  if (!('IntersectionObserver' in window) || links.length === 0) { return; }
+  var map = {};
+  links.forEach(function (a) { map[a.getAttribute('href').slice(1)] = a; });
+  var visible = {};
+  var observer = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) { visible[e.target.id] = e.isIntersecting; });
+    var sections = document.querySelectorAll('main section[id]');
+    for (var i = 0; i < sections.length; i++) {
+      if (visible[sections[i].id]) {
+        links.forEach(function (a) { a.classList.remove('active'); });
+        if (map[sections[i].id]) { map[sections[i].id].classList.add('active'); }
+        break;
+      }
+    }
+  }, { rootMargin: '-10% 0px -70% 0px' });
+  document.querySelectorAll('main section[id]').forEach(function (s) { observer.observe(s); });
+})();
+</script>
+</body>
+</html>
