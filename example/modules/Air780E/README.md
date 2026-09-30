@@ -1,7 +1,7 @@
-# Air780E 驱动示例
+# Air780E 上层模组示例
 
-`src/Air780E.c/.h` 为完整驱动源码；`air780e_example.c/.h` 展示初始化与主循环调度。
-核心和驱动不依赖 HAL；本示例选择 `../../uart/stm32f1_hal/air780e_uart_port.c/.h`。
+`src/Air780E.c/.h` 为完整上层模组协议源码；`air780e_example.c/.h` 展示初始化与主循环调度。
+核心和模组协议层不依赖 HAL；本示例选择 `../../uart/stm32f1_hal/air780e_uart_port.c/.h`。
 编译文件和板级准备按[根 README](../../../README.md)进行。
 
 ## 如何使用
@@ -41,6 +41,6 @@ Air780E_Result result = Air780E_MqttPublish(
 不能假设以 NUL 结束；回调短小且不阻塞。发布 topic/payload 与订阅 topic
 在完成回调返回之前不得修改或释放。
 
-此驱动提供 MQTT 3.1.1、QoS 0/1/2、单连接和缓存消息接收，未实现 TLS。
+此模组协议实现提供 MQTT 3.1.1、QoS 0/1/2、单连接和缓存消息接收，未实现 TLS。
 模组须运行兼容的 AT 固件；LuatOS 固件不能直接按此 AT 命令流程使用。
 供电和 UART 电平由所用底板决定，先核对接口再接线。

@@ -1,6 +1,6 @@
-# ML307C 驱动示例
+# ML307C 上层模组示例
 
-`src/ML307C.c/.h` 为完整驱动源码；`ml307c_example.c/.h` 展示初始化与主循环调度。
+`src/ML307C.c/.h` 为完整上层模组协议源码；`ml307c_example.c/.h` 展示初始化与主循环调度。
 搭配 `../../uart/stm32f1_hal/ml307c_uart_port.c/.h`，编译接入按
 [根 README](../../../README.md)进行。示例只检测网络，不自动发送 HTTP 或短信。
 
@@ -41,5 +41,5 @@ HTTPS 的 host 使用 `https://`，必须同时提供有效 `ca_pem`、`ca_lengt
 
 短信通过 `ML307C_SendSms(modem, number, text)` 提交，最终结果由
 `on_sms_complete` 通知。当前只支持 1～160 字节可打印 ASCII，不支持中文或长短信，
-要求数据网络就绪，不自动重发。HTTP 正文和响应规模、状态等限制详见驱动头文件与源码。
+要求数据网络就绪，不自动重发。HTTP 正文和响应规模、状态等限制详见模组协议头文件与源码。
 模组电源 EN/PWRKEY/DTR 与 GPIO 配置由用户工程负责。

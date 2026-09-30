@@ -12,7 +12,7 @@ ATClient/
 │   ├── ATClient.c
 │   └── ATClient.h
 ├── example/
-│   ├── drivers/                  # 第一部分：模组驱动源码和使用示例
+│   ├── modules/                  # 第一部分：上层模组协议源码和使用示例
 │   │   ├── Air780E/              # 网络检测、MQTT
 │   │   └── ML307C/               # 网络检测、HTTP/HTTPS、ASCII 短信
 │   └── uart/                     # 第二部分：UART 适配层示例
@@ -21,14 +21,18 @@ ATClient/
     └── ATClient_Air780E设计思路讲解.html
 ```
 
-示例包含所需驱动源码，复制整个 ATClient 文件夹即可保留这些示例。
+示例包含所需模组协议源码，复制整个 ATClient 文件夹即可保留这些示例。
 `example` 不属于核心库的默认编译范围；在用户工程中显式选择所需 `.c` 文件。
-驱动与 UART 示例来自 JPSmartCube 当前代码，板级初始化仅提取 USART2 部分。
+模组协议与 UART 示例来自 JPSmartCube 当前代码，板级初始化仅提取 USART2 部分。
+
+`modules` 是 ATClient 的上层模组协议示例，负责网络、MQTT、HTTP 等业务流程；
+UART 适配层位于 ATClient 下层，负责字节收发。模组协议层依赖 ATClient，
+ATClient 通过注入的 transport 接口使用 UART 适配层。
 
 ## 快速接入
 
 1. 把 `src/ATClient.c` 加入工程编译，并把 `src/` 加入头文件搜索路径。
-2. 选择一种模组，将其 `example/drivers/<模组>/src/` 和对应的
+2. 选择一种模组，将其 `example/modules/<模组>/src/` 和对应的
    `*_example.c` 加入编译；将这两个目录加入头文件搜索路径。
 3. STM32F103 HAL 用户再添加 `example/uart/stm32f1_hal/` 头文件路径，
    编译对应的一组 `*_uart_port.c/.h`，以及 `stm32f1_uart_msp.c`、
@@ -63,8 +67,8 @@ Air780E 对应使用 `air780e_example.h`、`Air780E_Example_Init()` 和
 
 ## 示例说明与设计文档
 
-- [Air780E 驱动使用](example/drivers/Air780E/README.md)
-- [ML307C 驱动使用](example/drivers/ML307C/README.md)
+- [Air780E 上层模组使用](example/modules/Air780E/README.md)
+- [ML307C 上层模组使用](example/modules/ML307C/README.md)
 - [UART 接入与移植](example/uart/README.md)
 - [ATClient / Air780E 设计思路](docs/ATClient_Air780E设计思路讲解.html)
 
