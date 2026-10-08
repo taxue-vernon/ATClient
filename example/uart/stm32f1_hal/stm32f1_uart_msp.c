@@ -1,20 +1,36 @@
+/**
+ * @file  stm32f1_uart_msp.c
+ * @brief 移植示例：USART2（PA2=TX，PA3=RX）的 GPIO、DMA（RX 循环/TX 普通）与 NVIC 底层初始化。
+ */
+
 #include "stm32f1xx_hal.h"
 
 extern DMA_HandleTypeDef hdma_usart2_rx;
 extern DMA_HandleTypeDef hdma_usart2_tx;
 
 /* 用户移植：仅包含 USART2 的 MSP 初始化，已有同名函数时合并分支。 */
+/**
+ * @brief HAL 回调：USART2 初始化时配置时钟、引脚、DMA 通道 6/7 并使能中断。
+ * @param huart 由 HAL_UART_Init()/HAL_UART_DeInit() 传入：正在初始化的 UART 句柄；只处理 USART2，
+ *              其他实例直接返回。
+ * @return 无
+ * @par 示例
+ * @code
+ * // 由 HAL_UART_Init() 内部自动调用
+ * huart2.Instance = USART2;
+ * huart2.Init.BaudRate = 115200U;
+ * (void)HAL_UART_Init(&huart2);
+ * @endcode
+ */
 void HAL_UART_MspInit(UART_HandleTypeDef *huart)
 {
     GPIO_InitTypeDef gpio_init = {0};
 
-    if (huart == NULL)
-    {
+    if (huart == NULL) {
         return;
     }
 
-    if (huart->Instance == USART2)
-    {
+    if (huart->Instance == USART2) {
         __HAL_RCC_GPIOA_CLK_ENABLE();
         __HAL_RCC_USART2_CLK_ENABLE();
         __HAL_RCC_DMA1_CLK_ENABLE();
@@ -60,13 +76,22 @@ void HAL_UART_MspInit(UART_HandleTypeDef *huart)
         HAL_NVIC_EnableIRQ(DMA1_Channel7_IRQn);
         return;
     }
-
 }
 
+/**
+ * @brief HAL 回调：USART2 反初始化时关闭时钟、释放引脚与 DMA、关闭中断。
+ * @param huart 由 HAL_UART_Init()/HAL_UART_DeInit() 传入：正在初始化的 UART 句柄；只处理 USART2，
+ *              其他实例直接返回。
+ * @return 无
+ * @par 示例
+ * @code
+ * // 由 HAL_UART_DeInit() 内部自动调用
+ * (void)HAL_UART_DeInit(&huart2);
+ * @endcode
+ */
 void HAL_UART_MspDeInit(UART_HandleTypeDef *huart)
 {
-    if (huart == NULL || huart->Instance != USART2)
-    {
+    if (huart == NULL || huart->Instance != USART2) {
         return;
     }
 
