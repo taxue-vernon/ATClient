@@ -72,7 +72,7 @@ Air780E 对应使用 `air780e_example.h`、`Air780E_Example_Init()` 和
 - [ML307C 上层模组使用](example/modules/ML307C/README.md)
 - [UART 接入与移植](example/uart/README.md)
 - [ATClient / Air780E 设计思路](docs/ATClient_Air780E设计思路讲解.html)
-- [ATClient / ML307C 讲解：调用流程、时序图与源码走读](docs/ATClient_ML307C讲解.html)
+- [ATClient / ML307C 讲解：按功能展开 AT 命令、时序与设计考虑](docs/ATClient_ML307C讲解.html)
 
 设计 HTML 从 JPSmartCube 的 `docs` 原样复制，可用浏览器离线打开。
 文中的工程路径、测试统计和目标内存数据属于原文版本；当前接口以本目录源码为准。

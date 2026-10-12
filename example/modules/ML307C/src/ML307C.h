@@ -131,7 +131,8 @@ typedef enum
     ML_H_DELETE,
     ML_S_MODE,
     ML_S_SEND,
-    ML_P_SLEEP
+    ML_P_SLEEP,
+    ML_P_WAKE
 } ML307C_Stage;
 
 /** @brief ML307C 驱动对象，包含状态机与全部缓冲区，建议定义为静态变量。 */
@@ -146,7 +147,8 @@ typedef struct
     bool started, pending, done, value_valid, bad_value, startup_notified;
     bool retry_wait, reboot, network_lost, pdp_notice, sms_channel_uncertain;
     bool tls_cert_present, tls_channel_uncertain;
-    bool sleep_requested, sleep_configured, sleeping;
+    bool sleep_requested, sleep_configured, sleeping, wake_probe;
+    uint8_t wake_attempts;
     uint32_t due_ms, wait_ms, health_ms, tls_due_ms, sleep_due_ms;
     ATClient_Result at_result;
     ML307C_HttpConfig http_config;
@@ -190,7 +192,9 @@ typedef struct
 bool ML307C_Init(ML307C *m, ATClient *at, const ML307C_Callbacks *cb, void *ctx);
 
 /**
- * @brief 启动开机探测与联网流程（AT、ATE0、型号、SIM、CSQ、CEREG、PDP...）。
+ * @brief 启动开机探测与联网流程（先发 AT+MLPMCFG="sleepmode",0,0 锁定不睡眠，再 AT、ATE0、
+ *        型号、SIM、CSQ、CEREG、PDP...）。模组常供电时 MCU 可能在模组睡眠期间复位，
+ *        所以开机也先唤醒并锁定。
  * @param m 传已用 ML307C_Init() 初始化的 ML307C 地址（如 &modem）。
  * @return ML307C_RESULT_OK 已启动；
  *         ML307C_RESULT_BUSY 已经启动过；
@@ -221,9 +225,14 @@ ML307C_Result ML307C_Start(ML307C *m);
  */
 void ML307C_Process(ML307C *m);
 
-/* Configure temporary ML307C sleep mode while idle. Only raise DTR after
- * SleepReady returns true; EnterSleep then suppresses all AT polling.
- * Lower DTR before Wake; Wake rechecks network and HTTPS state. */
+/* Idle sleep is controlled with AT commands only:
+ *   - start-up and Wake first send AT+MLPMCFG="sleepmode",0,0 (lock awake), resending it a few
+ *     times because the first UART bytes only wake a sleeping modem;
+ *   - when idle sleep is requested, AT+MLPMCFG="sleepmode",2,0 allows sleep, then EnterSleep
+ *     suppresses all AT polling until Wake;
+ *   - cancelling the request before EnterSleep re-locks the modem awake first.
+ * HTTP and SMS are refused while sleep is allowed. A carrier with UART0_DTR can additionally
+ * raise DTR after EnterSleep and lower it before Wake. */
 /**
  * @brief 请求（或取消）空闲睡眠：网络就绪且空闲时，驱动会下发 AT+MLPMCFG 配置睡眠模式。
  * @param m       传 ML307C 地址（如 &modem）；传 NULL 时什么也不做。
@@ -233,14 +242,14 @@ void ML307C_Process(ML307C *m);
  * @code
  * ML307C_RequestIdleSleep(&modem, true);
  * if (ML307C_SleepReady(&modem) && ML307C_EnterSleep(&modem)) {
- *     CabinetUI_SetModemSleep(true);   // 拉高 DTR
+ *     modem_sleeping = true;           // 之后不再发 AT，直到 ML307C_Wake()
  * }
  * @endcode
  */
 void ML307C_RequestIdleSleep(ML307C *m, bool enabled);
 
 /**
- * @brief 判断现在是否可以拉高 DTR 进入睡眠（已配置睡眠、网络就绪、无进行中的事务）。
+ * @brief 判断现在是否可以进入睡眠（模组已回复允许睡眠、网络就绪、无进行中的事务）。
  * @param m 传已用 ML307C_Init() 初始化的 ML307C 地址（如 &modem）。
  * @return true 可以进入睡眠；false 不可以或 m 为 NULL。
  * @par 示例
@@ -255,26 +264,28 @@ bool ML307C_SleepReady(const ML307C *m);
 /**
  * @brief 标记驱动进入睡眠，之后 ML307C_Process() 不再发送任何 AT 命令。
  * @param m 传已用 ML307C_Init() 初始化的 ML307C 地址（如 &modem）。
- * @return true 已进入睡眠（调用者随后拉高 DTR）；false 条件不满足。
+ * @return true 已进入睡眠（带 DTR 的底板随后可拉高 DTR）；false 条件不满足。
  * @par 示例
  * @code
  * if (ML307C_EnterSleep(&modem)) {
- *     CabinetUI_SetModemSleep(true);   // 拉高 DTR
+ *     printf("[4G] SLEEP_REQUEST\r\n");
  * }
  * @endcode
  */
 bool ML307C_EnterSleep(ML307C *m);
 
 /**
- * @brief 唤醒驱动：清除睡眠标记并从 AT 探测开始重新确认网络与 HTTPS 状态。
+ * @brief 唤醒驱动：先用 AT+MLPMCFG="sleepmode",0,0 经串口唤醒并锁定模组不睡眠
+ *        （无应答时每 1 s 重发，最多 5 次），再从 AT 探测开始重新确认网络与 HTTPS 状态。
  * @param m 传 ML307C 地址（如 &modem）；传 NULL 或当前未睡眠时什么也不做。
  * @return 无
- * @note  调用前应先拉低 DTR 并等待模组唤醒。
+ * @note  带 DTR 的底板应先拉低 DTR 并等待约 100 ms 再调用。
  * @par 示例
  * @code
- * CabinetUI_SetModemSleep(false);      // 拉低 DTR
- * HAL_Delay(100);
- * ML307C_Wake(&modem);
+ * if (alarm_pending && modem_sleeping) {
+ *     ML307C_Wake(&modem);
+ *     modem_sleeping = false;
+ * }
  * @endcode
  */
 void ML307C_Wake(ML307C *m);

@@ -11,6 +11,10 @@
 #define HTTP_MS     65000U
 #define HEALTH_MS   30000U
 #define CACHE_BYTES 4096U
+/* A sleeping modem may drop the first UART bytes that wake it, so the
+ * sleep-lock command is resent quickly before treating it as unresponsive. */
+#define WAKE_MS    1000U
+#define WAKE_TRIES 5U
 
 /**
  * @brief 切换对外状态，状态确实变化时调用 on_state_changed。
@@ -275,9 +279,11 @@ static void urc(void *ctx, const char *s, size_t len)
     (void)len;
     if (!strcmp(s, "+MATREADY")) {
         m->status.matready_seen = true;
-        /* During first probe MATREADY is expected; afterwards it invalidates
-         * all server and PDP handles. In-flight SMS is aborted by lost(). */
-        if (m->startup_notified || m->status.http_busy) {
+        /* Before the sleep lock is confirmed MATREADY is only the boot notice.
+         * Afterwards it means the modem restarted: server and PDP handles are
+         * gone and sleepmode is back to its default (sleep allowed), so the
+         * reboot path locks it again. In-flight SMS is aborted by lost(). */
+        if (m->startup_notified || m->status.http_busy || (m->started && !m->wake_probe)) {
             m->reboot = true;
             lost(m);
         }
@@ -737,7 +743,11 @@ ML307C_Result ML307C_Start(ML307C *m)
     if (m->started || m->pending)
         return ML307C_RESULT_BUSY;
     m->started = true;
-    m->stage = ML_N_AT;
+    /* The modem stays powered across MCU resets and may still be allowed to
+     * sleep: wake it and lock sleepmode 0 before the normal probe. */
+    m->stage = ML_P_WAKE;
+    m->wake_probe = true;
+    m->wake_attempts = 0U;
     state(m, ML307C_STATE_PROBING);
     return ML307C_RESULT_OK;
 }
@@ -784,7 +794,7 @@ const ML307C_Status *ML307C_GetStatus(const ML307C *m)
  * @code
  * ML307C_RequestIdleSleep(&modem, true);
  * if (ML307C_SleepReady(&modem) && ML307C_EnterSleep(&modem)) {
- *     CabinetUI_SetModemSleep(true);   // 拉高 DTR
+ *     modem_sleeping = true;           // 之后不再发 AT，直到 ML307C_Wake()
  * }
  * @endcode
  */
@@ -795,7 +805,7 @@ void ML307C_RequestIdleSleep(ML307C *m, bool enabled)
 }
 
 /**
- * @brief 判断现在是否可以拉高 DTR 进入睡眠（已配置睡眠、网络就绪、无进行中的事务）。
+ * @brief 判断现在是否可以进入睡眠（模组已回复允许睡眠、网络就绪、无进行中的事务）。
  * @param m 传已用 ML307C_Init() 初始化的 ML307C 地址（如 &modem）。
  * @return true 可以进入睡眠；false 不可以或 m 为 NULL。
  * @par 示例
@@ -817,11 +827,11 @@ bool ML307C_SleepReady(const ML307C *m)
 /**
  * @brief 标记驱动进入睡眠，之后 ML307C_Process() 不再发送任何 AT 命令。
  * @param m 传已用 ML307C_Init() 初始化的 ML307C 地址（如 &modem）。
- * @return true 已进入睡眠（调用者随后拉高 DTR）；false 条件不满足。
+ * @return true 已进入睡眠（带 DTR 的底板随后可拉高 DTR）；false 条件不满足。
  * @par 示例
  * @code
  * if (ML307C_EnterSleep(&modem)) {
- *     CabinetUI_SetModemSleep(true);   // 拉高 DTR
+ *     printf("[4G] SLEEP_REQUEST\r\n");
  * }
  * @endcode
  */
@@ -834,15 +844,17 @@ bool ML307C_EnterSleep(ML307C *m)
 }
 
 /**
- * @brief 唤醒驱动：清除睡眠标记并从 AT 探测开始重新确认网络与 HTTPS 状态。
+ * @brief 唤醒驱动：先用 AT+MLPMCFG="sleepmode",0,0 经串口唤醒并锁定模组不睡眠
+ *        （无应答时每 1 s 重发，最多 5 次），再从 AT 探测开始重新确认网络与 HTTPS 状态。
  * @param m 传 ML307C 地址（如 &modem）；传 NULL 或当前未睡眠时什么也不做。
  * @return 无
- * @note  调用前应先拉低 DTR 并等待模组唤醒。
+ * @note  带 DTR 的底板应先拉低 DTR 并等待约 100 ms 再调用。
  * @par 示例
  * @code
- * CabinetUI_SetModemSleep(false);      // 拉低 DTR
- * HAL_Delay(100);
- * ML307C_Wake(&modem);
+ * if (alarm_pending && modem_sleeping) {
+ *     ML307C_Wake(&modem);
+ *     modem_sleeping = false;
+ * }
  * @endcode
  */
 void ML307C_Wake(ML307C *m)
@@ -861,7 +873,9 @@ void ML307C_Wake(ML307C *m)
     m->status.tls_ready = false;
     m->status.registration = 0;
     m->status.ipv4[0] = m->status.ipv6[0] = 0;
-    m->stage = ML_N_AT;
+    m->stage = ML_P_WAKE;
+    m->wake_probe = true;
+    m->wake_attempts = 0U;
     state(m, ML307C_STATE_PROBING);
 }
 
@@ -933,7 +947,8 @@ static ML307C_Result http_start(ML307C *m, const char *path, unsigned method)
         return ML307C_RESULT_INVALID_ARGUMENT;
     if (https_configured(m) && !m->status.tls_ready)
         return ML307C_RESULT_NOT_READY;
-    if (m->sleeping)
+    /* While sleep is allowed the modem may doze between commands. */
+    if (m->sleeping || m->sleep_configured)
         return ML307C_RESULT_NOT_READY;
     if (m->state == ML307C_STATE_PROBING)
         return ML307C_RESULT_NOT_READY;
@@ -1051,7 +1066,7 @@ ML307C_Result ML307C_SendSms(ML307C *m, const char *number, const char *text)
             return ML307C_RESULT_INVALID_ARGUMENT;
     if (!length)
         return ML307C_RESULT_INVALID_ARGUMENT;
-    if (m->sleeping)
+    if (m->sleeping || m->sleep_configured)
         return ML307C_RESULT_NOT_READY;
     if (m->status.sms_busy || m->status.http_busy || m->pending || m->stage != ML_N_IDLE)
         return ML307C_RESULT_BUSY;
@@ -1160,6 +1175,9 @@ static bool build(void *ctx, char *dst, size_t cap, size_t *length)
             break;
         case ML_P_SLEEP:
             n = snprintf(dst, cap, "AT+MLPMCFG=\"sleepmode\",2,0");
+            break;
+        case ML_P_WAKE:
+            n = snprintf(dst, cap, "AT+MLPMCFG=\"sleepmode\",0,0");
             break;
         default:
             break;
@@ -1321,6 +1339,28 @@ static void handle_done(ML307C *m)
                        m->stage == ML_H_CREATE || m->stage == ML_S_SEND;
     if (r == ML307C_RESULT_OK && (m->bad_value || (needs_value && !m->value_valid)))
         r = ML307C_RESULT_PARSE_ERROR;
+    if (m->stage == ML_P_WAKE) {
+        ML307C_Stage next = m->wake_probe ? ML_N_AT : ML_N_IDLE;
+        if (r != ML307C_RESULT_OK && ++m->wake_attempts < WAKE_TRIES)
+            return; /* resend at once: the first bytes may only have woken the UART */
+        m->wake_attempts = 0U;
+        if (r == ML307C_RESULT_OK || r == ML307C_RESULT_AT_ERROR) {
+            /* Locked awake, or the modem answers but rejects the lock: either
+             * way it is responsive, so continue instead of looping forever. */
+            m->status.last_result = r;
+            m->sleep_configured = false;
+            m->wake_probe = false;
+            m->stage = next;
+            m->health_ms = ATClient_NowMs(m->at);
+            return;
+        }
+        m->status.responsive = false;
+        if (m->startup_notified)
+            lost(m);
+        m->wake_probe = true;
+        retry(m, r, ML_P_WAKE);
+        return;
+    }
     if (m->stage == ML_P_SLEEP) {
         m->status.last_result = r;
         if (r == ML307C_RESULT_OK)
@@ -1507,7 +1547,10 @@ void ML307C_Process(ML307C *m)
         m->status.tls_ready = false;
         m->status.cleanup_result = ML307C_RESULT_OK;
         m->startup_notified = false;
-        retry(m, ML307C_RESULT_NETWORK_LOST, ML_N_AT);
+        /* A restarted modem allows sleep again: lock it before probing. */
+        m->wake_probe = true;
+        m->wake_attempts = 0U;
+        retry(m, ML307C_RESULT_NETWORK_LOST, ML_P_WAKE);
     }
     if (m->done) {
         m->done = false;
@@ -1543,6 +1586,13 @@ void ML307C_Process(ML307C *m)
         if (m->network_lost) {
             sms_finish(m, ML307C_RESULT_NETWORK_LOST);
         }
+    } else if (m->stage == ML_N_IDLE && m->sleep_configured &&
+               (!m->sleep_requested || m->network_lost ||
+                m->state != ML307C_STATE_NETWORK_READY)) {
+        /* Sleep was allowed but is no longer wanted, or the network dropped
+         * before EnterSleep: lock the modem awake before any other command. */
+        m->wake_attempts = 0U;
+        m->stage = ML_P_WAKE;
     } else if (m->stage == ML_N_IDLE) {
         if (m->network_lost) {
             m->network_lost = false;
@@ -1581,7 +1631,7 @@ void ML307C_Process(ML307C *m)
         return;
     req.build_command = build;
     req.command_context = m;
-    req.timeout_ms = COMMAND_MS;
+    req.timeout_ms = m->stage == ML_P_WAKE ? WAKE_MS : COMMAND_MS;
     req.on_line = on_line;
     req.on_complete = on_complete;
     req.callback_context = m;

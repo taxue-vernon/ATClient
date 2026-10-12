@@ -122,14 +122,15 @@ bool ML307C_UartPort_Init(ATClient *client)
 }
 
 /**
- * @brief 停止 USART2/DMA，并把 PA2/PA3 设为模拟输入，避免模组断电时 IO 倒灌。
+ * @brief 停止 USART2/DMA，并把 PA2/PA3 设为模拟输入（释放串口，模组不通信时也不会经 IO 倒灌）。
  * @param 无
  * @return 无
- * @note  在通过 EN 关断模组电源之前调用；之后需重新 Init 才能通信。
+ * @note  4G 应用启动失败时调用；之后需重新 Init 才能通信。
  * @par 示例
  * @code
- * ML307C_UartPort_Shutdown();
- * CabinetUI_SetModemPower(false);
+ * if (!ML307C_Init(&ml307c, &at_client, &callbacks, NULL)) {
+ *     ML307C_UartPort_Shutdown();
+ * }
  * @endcode
  */
 void ML307C_UartPort_Shutdown(void)

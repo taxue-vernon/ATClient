@@ -43,3 +43,11 @@ HTTPS 的 host 使用 `https://`，必须同时提供有效 `ca_pem`、`ca_lengt
 `on_sms_complete` 通知。当前只支持 1～160 字节可打印 ASCII，不支持中文或长短信，
 要求数据网络就绪，不自动重发。HTTP 正文和响应规模、状态等限制详见模组协议头文件与源码。
 模组电源 EN/PWRKEY/DTR 与 GPIO 配置由用户工程负责。
+
+## 睡眠锁定
+
+模组常供电时，MCU 复位可能正好发生在模组睡眠期间，所以 `ML307C_Start()` 的第一条命令是
+`AT+MLPMCFG="sleepmode",0,0`：唤醒并锁定不睡眠，超时 1 s，没成功就立即重发，最多 5 次，之后才从 `AT` 开始探测。
+锁定成功以后再收到 `+MATREADY`，驱动按模组重启处理，5 s 后同样先锁定再探测。
+需要空闲睡眠时调用 `ML307C_RequestIdleSleep()`，等 `ML307C_SleepReady()` 为真再调用 `ML307C_EnterSleep()`，
+有事件时调用 `ML307C_Wake()`。允许睡眠期间 HTTP 和短信返回 `NOT_READY`，详见 `src/ML307C.h` 的注释。
